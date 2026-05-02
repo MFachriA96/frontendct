@@ -1,0 +1,149 @@
+/* AdminDashboard.css */
+
+.admin-sidebar {
+    background-color: #0f172a; /* Darker sidebar for Admin feel */
+}
+
+.admin-sidebar .sidebar-header {
+    border-bottom: 1px solid #1e293b;
+}
+
+.admin-sidebar .logo {
+    color: #ffffff;
+}
+
+.admin-sidebar .nav-section {
+    color: #64748b;
+}
+
+.admin-sidebar .nav-item {
+    color: #cbd5e1;
+}
+
+.admin-sidebar .nav-item:hover { 
+    background-color: #1e293b; 
+    color: #ffffff; 
+}
+
+.admin-sidebar .nav-item.active {
+    background-color: var(--primary);
+    color: white;
+}
+
+.admin-sidebar .sidebar-footer {
+    border-top: 1px solid #1e293b;
+}
+
+.admin-sidebar .text-danger { 
+    color: #f87171 !important; 
+}
+
+.admin-sidebar .text-danger:hover { 
+    background-color: rgba(2ef, 68, 68, 0.1); 
+}
+
+/* Specific overrides for Admin Dashboard Data Cards */
+.kpi-card.border-blue::before { background: var(--primary); }
+.kpi-card.border-info::before { background: var(--info); }
+.kpi-card.border-warning::before { background: var(--warning); }
+.kpi-card.border-purple::before { background: var(--purple); }
+
+.tab-badge.blue { background: var(--primary); color: white; }
+
+/* User Cell & Badges */
+.user-cell {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.avatar-sm {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.role-badge {
+    padding: 0.3rem 0.75rem;
+    border-radius: var(--radius-full);
+    font-size: 0.75rem;
+    font-weight: 700;
+    display: inline-block;
+    letter-spacing: 0.05em;
+}
+
+.role-vendor { background: #eff6ff; color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.2); }
+.role-scanner { background: #f5f3ff; color: #8b5cf6; border: 1px solid rgba(139, 92, 246, 0.2); }
+.role-manager { background: #fffbeb; color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.2); }
+.role-admin { background: #fef2f2; color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); }
+.bg-admin { background: #fef2f2; color: #ef4444; }
+.bg-manager { background: #fffbeb; color: #f59e0b; }
+.bg-scanner { background: #f5f3ff; color: #8b5cf6; }
+.bg-vendor { background: #eff6ff; color: #3b82f6; }
+.bg-muted { background: #e2e8f0; color: #475569; }
+
+.status-indicator { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; }
+.status-indicator .dot { width: 8px; height: 8px; border-radius: 50%; }
+.status-indicator .dot.active { background-color: var(--success); }
+.status-indicator .dot.inactive { background-color: var(--text-muted); }
+
+/* Basic Badges for Audit Logs */
+.badge {
+    padding: 0.25rem 0.6rem;
+    border-radius: var(--radius-md);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+.badge-info { background: #e0f2fe; color: #0369a1; }
+.badge-warning { background: #fef3c7; color: #92400e; }
+.badge-primary { background: #e0e7ff; color: #3730a3; }
+.badge-success { background: #d1fae5; color: #065f46; }
+.badge-dark { background: #f1f5f9; color: #334155; }
+
+/* System Health */
+.health-grid { padding: 1.5rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }
+.health-card { border: 1px solid var(--border-color); padding: 1.5rem; border-radius: var(--radius-md); text-align: center; }
+.health-card h3 { font-size: 1rem; margin-bottom: 1rem; color: var(--text-main); }
+.health-status { font-size: 1.25rem; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.5rem; }
+.health-status.up { color: var(--success); }
+.health-status.down { color: var(--danger); }
+
+/* Button Icons */
+.btn-icon {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0.5rem;
+    color: var(--text-muted);
+    border-radius: var(--radius-md);
+    transition: all 0.2s;
+}
+.btn-icon:hover { background: var(--bg-main); }
+.btn-icon.text-danger:hover { color: var(--danger); background: #fef2f2; }
+.btn-icon.text-success:hover { color: var(--success); background: #d1fae5; }
+
+.alert-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.9rem 1rem;
+    border-radius: var(--radius-md);
+    margin-bottom: 1rem;
+    border: 1px solid transparent;
+}
+
+.alert-banner.error {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: #b91c1c;
+}
+
+.table-summary-text {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
