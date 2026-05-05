@@ -7,14 +7,191 @@ html, body {
   margin: 0;
   padding: 0;
   width: 100%;
-  height: 100%;
+  min-height: 100%;
   font-family: "Inter", sans-serif;
   background-color: #f3f4f7;
+  overflow-x: hidden;
 }
 
 #root {
   width: 100%;
-  height: 100%;
+  min-height: 100%;
   margin: 0;
   padding: 0;
+}
+
+img, svg, video, canvas {
+  max-width: 100%;
+}
+
+@media (max-width: 900px) {
+  .app-container {
+    flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+    min-height: 100svh;
+    overflow: visible;
+  }
+
+  .sidebar {
+    width: 100%;
+    max-height: none;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-color, #e2e8f0);
+  }
+
+  .sidebar-header {
+    padding: 1rem;
+  }
+
+  .sidebar-nav {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+  }
+
+  .sidebar-footer {
+    padding: 0.75rem 1rem;
+  }
+
+  .nav-section {
+    display: none;
+  }
+
+  .nav-item {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    margin-bottom: 0;
+  }
+
+  .main-content {
+    overflow: visible;
+  }
+
+  .topbar {
+    height: auto;
+    min-height: 64px;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    padding: 1rem;
+  }
+
+  .search-bar {
+    order: 2;
+    width: 100%;
+    max-width: none;
+  }
+
+  .topbar-actions {
+    width: 100%;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .date-badge {
+    font-size: 0.78rem;
+  }
+
+  .user-profile {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .content-wrapper {
+    padding: 1rem;
+  }
+
+  .page-header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .page-header .header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .stats-kpi-container,
+  .stats-grid,
+  .health-grid,
+  .review-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .card-tabs {
+    overflow-x: auto;
+    padding: 0 0.75rem;
+  }
+
+  .card-tabs .tab-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    padding: 1rem 0.9rem;
+  }
+
+  .table-toolbar,
+  .filter-group,
+  .modal-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .filter-select,
+  .modal-footer .btn {
+    width: 100%;
+  }
+
+  .modal-overlay {
+    align-items: flex-start;
+    overflow-y: auto;
+    padding: 1rem;
+  }
+
+  .modal {
+    width: 100%;
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+  }
+
+  .form-grid,
+  .scan-mode-selector,
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .topbar-actions .user-info,
+  .date-badge {
+    display: none;
+  }
+
+  .page-header h1 {
+    font-size: 1.45rem;
+  }
+
+  .kpi-card,
+  .stat-card,
+  .card-body,
+  .modal-body {
+    padding: 1rem;
+  }
+
+  .data-table th,
+  .data-table td,
+  .table th,
+  .table td {
+    padding: 0.85rem 1rem;
+  }
+
+  .review-detail-row,
+  .issue-numbers {
+    flex-direction: column;
+  }
 }
