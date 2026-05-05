@@ -367,7 +367,7 @@ const ScanOfficerDashboard = () => {
                 </div>
               </div>
               <div className="card-body">
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
+                <div className="scan-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
                   <div className="form-group">
                     <label>Warehouse</label>
                     <select className="form-control" value={idGudang} onChange={(e) => setIdGudang(e.target.value)}>
@@ -425,7 +425,7 @@ const ScanOfficerDashboard = () => {
           )}
 
           {activeTab === 'manual' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+            <div className="manual-verification-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
               <div className="card">
                 <div className="card-header">
                   <h2>Manual Item Verification</h2>

@@ -501,3 +501,140 @@
 .vendor-dashboard .qr-copy-btn {
   width: 100%;
 }
+
+@media (max-width: 900px) {
+  .vendor-dashboard {
+    flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+    min-height: 100svh;
+    overflow: visible;
+  }
+
+  .vendor-dashboard .sidebar {
+    width: 100%;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .vendor-dashboard .sidebar-header {
+    height: auto;
+    min-height: 62px;
+    padding: 16px 20px;
+  }
+
+  .vendor-dashboard .sidebar-menu {
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+  }
+
+  .vendor-dashboard .menu-item {
+    flex: 0 0 auto;
+    border-left: 0;
+    border-bottom: 3px solid transparent;
+    border-radius: 10px;
+    padding: 12px 14px;
+    white-space: nowrap;
+  }
+
+  .vendor-dashboard .menu-item:hover,
+  .vendor-dashboard .menu-item.active {
+    border-left-color: transparent;
+    border-bottom-color: var(--secondary-blue);
+  }
+
+  .vendor-dashboard .sidebar-footer {
+    padding: 10px 16px 14px;
+  }
+
+  .vendor-dashboard .main-wrapper {
+    overflow: visible;
+  }
+
+  .vendor-dashboard .header {
+    height: auto;
+    min-height: 64px;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .vendor-dashboard .header-actions {
+    width: 100%;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .vendor-dashboard .content {
+    padding: 16px;
+    overflow: visible;
+  }
+
+  .vendor-dashboard .stats-grid,
+  .vendor-dashboard .form-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .vendor-dashboard .item-row {
+    grid-template-columns: 1fr;
+  }
+
+  .vendor-dashboard .card {
+    overflow-x: auto;
+  }
+
+  .vendor-dashboard .card-header,
+  .vendor-dashboard .form-actions {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .vendor-dashboard .form-actions .btn,
+  .vendor-dashboard .card-header .btn,
+  .vendor-dashboard .card-header .form-control {
+    width: 100%;
+    max-width: none !important;
+  }
+
+  .vendor-dashboard table {
+    min-width: 680px;
+  }
+}
+
+@media (max-width: 520px) {
+  .vendor-dashboard .user-info,
+  .vendor-dashboard .user-profile .fa-chevron-down {
+    display: none;
+  }
+
+  .vendor-dashboard .page-title {
+    font-size: 1.1rem;
+  }
+
+  .vendor-dashboard .stat-card {
+    padding: 18px;
+  }
+
+  .vendor-dashboard .stat-icon {
+    width: 48px;
+    height: 48px;
+    margin-right: 14px;
+  }
+
+  .vendor-dashboard .form-grid,
+  .vendor-dashboard .items-container,
+  .vendor-dashboard .form-actions,
+  .vendor-dashboard .card-header {
+    padding: 16px;
+  }
+
+  .vendor-dashboard th,
+  .vendor-dashboard td {
+    padding: 12px 16px;
+  }
+}

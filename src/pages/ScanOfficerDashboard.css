@@ -859,3 +859,23 @@ body {
         grid-template-columns: 1fr;
     }
 }
+
+@media (max-width: 900px) {
+    .scan-officer-dashboard .scan-form-grid,
+    .scan-officer-dashboard .manual-verification-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .scan-officer-dashboard .scan-module {
+        max-width: 100% !important;
+    }
+
+    .camera-viewport {
+        height: min(300px, 70vw);
+    }
+
+    .scanner-box {
+        width: min(200px, 58vw);
+        height: min(200px, 58vw);
+    }
+}
