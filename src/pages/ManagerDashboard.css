@@ -589,3 +589,262 @@ body {
 }
 
 .close-btn { background: transparent; border: none; font-size: 1.25rem; cursor: pointer; color: var(--text-muted); }
+
+@media (max-width: 900px) {
+    .manager-dashboard.app-container {
+        overflow-x: hidden;
+    }
+
+    .manager-dashboard .sidebar {
+        position: relative;
+        z-index: 20;
+        overflow: hidden;
+    }
+
+    .manager-dashboard .sidebar-header {
+        padding: 0.85rem 1rem;
+    }
+
+    .manager-dashboard .sidebar-nav {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.65rem;
+        overflow: visible;
+        padding: 0.85rem 1rem;
+    }
+
+    .manager-dashboard .nav-section {
+        display: none;
+    }
+
+    .manager-dashboard .nav-item {
+        min-width: 0;
+        justify-content: center;
+        gap: 0.55rem;
+        padding: 0.75rem 0.65rem;
+        white-space: normal;
+        text-align: center;
+        line-height: 1.2;
+        margin-bottom: 0;
+    }
+
+    .manager-dashboard .nav-item i {
+        flex: 0 0 20px;
+        width: 20px;
+    }
+
+    .manager-dashboard .nav-item span {
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+
+    .manager-dashboard .nav-item .badge {
+        margin-left: 0;
+    }
+
+    .manager-dashboard .sidebar-footer {
+        padding: 0 1rem 1rem;
+    }
+
+    .manager-dashboard .sidebar-footer .nav-item {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .manager-dashboard .topbar {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.85rem 1rem;
+    }
+
+    .manager-dashboard .topbar-actions {
+        width: auto;
+        justify-content: flex-end;
+        grid-column: 1 / -1;
+        grid-row: 1;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .manager-dashboard .date-badge {
+        justify-self: start;
+        max-width: 100%;
+    }
+
+    .manager-dashboard .date-badge span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .manager-dashboard .search-bar {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        order: initial;
+        width: 100%;
+        max-width: none;
+    }
+
+    .manager-dashboard .user-profile {
+        gap: 0;
+        padding-left: 0;
+        border-left: 0;
+    }
+
+    .manager-dashboard .user-info {
+        display: none;
+    }
+
+    .manager-dashboard .content-wrapper {
+        padding: 1.25rem 1rem;
+    }
+
+    .manager-dashboard .page-header {
+        gap: 1.25rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .manager-dashboard .page-header h1 {
+        font-size: clamp(1.8rem, 9vw, 2.75rem);
+        line-height: 1.08;
+        letter-spacing: -0.04em;
+    }
+
+    .manager-dashboard .page-header .header-actions,
+    .manager-dashboard .page-header .btn {
+        width: 100%;
+    }
+
+    .manager-dashboard .stats-kpi-container {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+
+    .manager-dashboard .kpi-card {
+        padding: 1.25rem;
+    }
+
+    .manager-dashboard .card-tabs {
+        padding: 0 0.75rem;
+        overflow-x: auto;
+        overscroll-behavior-inline: contain;
+    }
+
+    .manager-dashboard .card-tabs .tab-btn {
+        flex: 0 0 auto;
+        padding: 1rem 0.9rem;
+        white-space: nowrap;
+    }
+
+    .manager-dashboard .table-toolbar,
+    .manager-dashboard .filter-group {
+        align-items: stretch;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .manager-dashboard .filter-select {
+        width: 100%;
+    }
+
+    .manager-dashboard .data-table {
+        min-width: 720px;
+    }
+
+    .manager-dashboard .review-grid {
+        grid-template-columns: 1fr;
+        padding: 1rem;
+    }
+
+    .manager-dashboard .modal-overlay {
+        align-items: flex-start;
+        overflow-y: auto;
+        padding: 1rem;
+    }
+
+    .manager-dashboard .modal {
+        width: 100%;
+        max-height: calc(100vh - 2rem);
+        overflow-y: auto;
+    }
+}
+
+@media (max-width: 520px) {
+    .manager-dashboard .sidebar-header {
+        display: none;
+    }
+
+    .manager-dashboard .sidebar-nav {
+        grid-template-columns: 1fr 1fr;
+        padding: 0.75rem;
+        gap: 0.5rem;
+    }
+
+    .manager-dashboard .nav-item {
+        font-size: 0.82rem;
+        padding: 0.7rem 0.45rem;
+    }
+
+    .manager-dashboard .nav-item i {
+        font-size: 1rem;
+        flex-basis: 18px;
+        width: 18px;
+    }
+
+    .manager-dashboard .sidebar-footer {
+        padding: 0 0.75rem 0.75rem;
+    }
+
+    .manager-dashboard .topbar {
+        padding: 0.75rem;
+    }
+
+    .manager-dashboard .topbar-actions {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .manager-dashboard .icon-btn {
+        display: none;
+    }
+
+    .manager-dashboard .date-badge {
+        font-size: 0.78rem;
+        padding: 0.45rem 0.65rem;
+    }
+
+    .manager-dashboard .content-wrapper {
+        padding: 1rem 0.85rem;
+    }
+
+    .manager-dashboard .subtitle {
+        font-size: 0.9rem;
+        line-height: 1.45;
+    }
+
+    .manager-dashboard .kpi-value {
+        font-size: 2.75rem;
+    }
+
+    .manager-dashboard .kpi-header {
+        align-items: flex-start;
+        gap: 1rem;
+    }
+
+    .manager-dashboard .review-card-header,
+    .manager-dashboard .review-detail-row,
+    .manager-dashboard .issue-numbers,
+    .manager-dashboard .modal-footer {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .manager-dashboard .modal-header,
+    .manager-dashboard .modal-body,
+    .manager-dashboard .modal-footer {
+        padding: 1rem;
+    }
+}

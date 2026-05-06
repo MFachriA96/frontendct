@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/api';
@@ -6,7 +6,7 @@ import './ScanOfficerDashboard.css';
 
 const ScanOfficerDashboard = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [user, setUser] = useState(() => {
+  const [user] = useState(() => {
     const userData = localStorage.getItem('user');
     return userData ? JSON.parse(userData) : null;
   });
@@ -22,6 +22,8 @@ const ScanOfficerDashboard = () => {
   const [idGudang, setIdGudang] = useState(1);
   const [namaPenerima, setNamaPenerima] = useState(user?.nama || 'Officer');
   const [scanFeedback, setScanFeedback] = useState(null);
+  const [cameraError, setCameraError] = useState('');
+  const [cameraActive, setCameraActive] = useState(false);
 
   // Manual verification state
   const [manualInboundId, setManualInboundId] = useState('');
@@ -30,8 +32,12 @@ const ScanOfficerDashboard = () => {
   const [manualPhotos, setManualPhotos] = useState({});
 
   const navigate = useNavigate();
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const scanLoopRef = useRef(null);
+  const detectorRef = useRef(null);
 
-  const fetchInbounds = async () => {
+  const fetchInbounds = useCallback(async () => {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get(`${API_BASE_URL}/api/inbound`, {
@@ -52,11 +58,11 @@ const ScanOfficerDashboard = () => {
     } catch (error) {
       console.error('Error fetching inbounds:', error);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchInbounds();
-  }, []);
+    void Promise.resolve().then(fetchInbounds);
+  }, [fetchInbounds]);
 
   const handleLogout = async () => {
     try {
@@ -66,20 +72,37 @@ const ScanOfficerDashboard = () => {
           headers: { Authorization: `Bearer ${token}` }
         });
       }
-    } catch (e) {}
+    } catch {
+      // Logout should still clear the local session even if the API call fails.
+    }
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     navigate('/login');
   };
 
-  const handleScanSubmit = async () => {
-    if (!qrToken) return;
+  const stopCamera = useCallback(() => {
+    if (scanLoopRef.current) {
+      window.cancelAnimationFrame(scanLoopRef.current);
+      scanLoopRef.current = null;
+    }
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+
+    setCameraActive(false);
+  }, []);
+
+  const handleScanSubmit = useCallback(async (scannedToken = qrToken) => {
+    const tokenValue = String(scannedToken || '').trim();
+    if (!tokenValue) return;
     setLoading(true);
     setScanFeedback(null);
     try {
       const token = localStorage.getItem('token');
       const payload = {
-        qr_token: qrToken,
+        qr_token: tokenValue,
         ID_gudang: idGudang,
         nama_penerima: namaPenerima,
         lokasi_terakhir: 'Warehouse Entry'
@@ -90,6 +113,7 @@ const ScanOfficerDashboard = () => {
       
       setScanFeedback({ type: 'success', message: response.data.message, progress: response.data.progress });
       setQrToken('');
+      stopCamera();
       fetchInbounds();
     } catch (error) {
       const msg = error.response?.data?.message || error.message;
@@ -97,7 +121,94 @@ const ScanOfficerDashboard = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [fetchInbounds, idGudang, namaPenerima, qrToken, stopCamera]);
+
+  const startCamera = useCallback(async () => {
+    setCameraError('');
+    setScanFeedback(null);
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError('Camera access is not supported by this browser. Please use manual entry.');
+      return;
+    }
+
+    if (!('BarcodeDetector' in window)) {
+      setCameraError('QR scanning is not supported by this browser yet. Please use manual entry.');
+      return;
+    }
+
+    try {
+      detectorRef.current = detectorRef.current || new window.BarcodeDetector({ formats: ['qr_code'] });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      });
+
+      streamRef.current = stream;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+
+      setCameraActive(true);
+
+      const scanFrame = async () => {
+        if (!videoRef.current || !detectorRef.current || !streamRef.current) return;
+
+        try {
+          const codes = await detectorRef.current.detect(videoRef.current);
+          const detectedValue = codes[0]?.rawValue;
+
+          if (detectedValue) {
+            setQrToken(detectedValue);
+            await handleScanSubmit(detectedValue);
+            return;
+          }
+        } catch (error) {
+          console.error('QR scan failed:', error);
+        }
+
+        scanLoopRef.current = window.requestAnimationFrame(scanFrame);
+      };
+
+      scanLoopRef.current = window.requestAnimationFrame(scanFrame);
+    } catch (error) {
+      console.error('Camera access failed:', error);
+      const message = error.name === 'NotAllowedError'
+        ? 'Camera permission was blocked. Please allow camera access in your browser settings.'
+        : 'Unable to open the camera. Please check browser permission or use manual entry.';
+      setCameraError(message);
+      stopCamera();
+    }
+  }, [handleScanSubmit, stopCamera]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (scanMethod === 'camera') {
+      void Promise.resolve().then(() => {
+        if (!cancelled) {
+          startCamera();
+        }
+      });
+    } else {
+      void Promise.resolve().then(() => {
+        if (!cancelled) {
+          stopCamera();
+        }
+      });
+    }
+
+    return () => {
+      cancelled = true;
+      stopCamera();
+    };
+  }, [scanMethod, startCamera, stopCamera]);
 
   const handleLoadManualInbound = async () => {
     if (!manualInboundId) return;
@@ -384,14 +495,26 @@ const ScanOfficerDashboard = () => {
 
                 {scanMethod === 'camera' ? (
                   <div className="camera-viewport">
+                    <video
+                      ref={videoRef}
+                      className="camera-video"
+                      muted
+                      playsInline
+                      autoPlay
+                    />
                     <div className="scanner-overlay">
                       <div className="scanner-box"><div className="scanner-line"></div></div>
                     </div>
-                    <div className="camera-placeholder">
-                      <i className="fa-solid fa-video-slash"></i>
-                      <p>Camera is simulated.</p>
-                      <button className="btn btn-outline" onClick={() => setScanMethod('manual')}>Use Manual Input Instead</button>
-                    </div>
+                    {(!cameraActive || cameraError) && (
+                      <div className="camera-placeholder">
+                        <i className={`fa-solid ${cameraError ? 'fa-video-slash' : 'fa-camera'}`}></i>
+                        <p>{cameraError || 'Starting camera...'}</p>
+                        <div className="camera-actions">
+                          <button className="btn btn-outline" onClick={startCamera}>Retry Camera</button>
+                          <button className="btn btn-outline" onClick={() => setScanMethod('manual')}>Use Manual Input</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="manual-entry-form">

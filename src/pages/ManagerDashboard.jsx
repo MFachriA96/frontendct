@@ -124,7 +124,7 @@ const ManagerDashboard = () => {
   };
 
   return (
-    <div className="app-container">
+    <div className="app-container manager-dashboard">
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-header">

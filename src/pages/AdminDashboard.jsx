@@ -266,7 +266,7 @@ const AdminDashboard = () => {
   );
 
   return (
-    <div className="app-container">
+    <div className="app-container admin-dashboard">
       <aside className="sidebar admin-sidebar">
         <div className="sidebar-header">
           <div className="logo">
