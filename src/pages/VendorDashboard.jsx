@@ -49,10 +49,19 @@ const VendorDashboard = () => {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedShipmentDetails, setSelectedShipmentDetails] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
+  const [reportModalData, setReportModalData] = useState(null);
 
   // Notifications State
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [settingsPrefs, setSettingsPrefs] = useState(() => {
+    const savedPrefs = localStorage.getItem('vendorSettingsPrefs');
+    return savedPrefs ? JSON.parse(savedPrefs) : {
+      discrepancyAlerts: true,
+      reportAlerts: true,
+      qrDownloadHint: true,
+    };
+  });
 
   const navigate = useNavigate();
 
@@ -205,6 +214,44 @@ const VendorDashboard = () => {
       fetchNotifications();
     } catch (error) {
       console.error('Error marking all as read:', error);
+    }
+  };
+
+  const handleSettingsPreferenceChange = (field) => {
+    setSettingsPrefs(prev => {
+      const nextPrefs = { ...prev, [field]: !prev[field] };
+      localStorage.setItem('vendorSettingsPrefs', JSON.stringify(nextPrefs));
+      return nextPrefs;
+    });
+  };
+
+  const isDiscrepancyNotification = (notif) => {
+    const text = `${notif?.judul || ''} ${notif?.pesan || ''}`.toLowerCase();
+    return notif?.related_type === 'discrepancy'
+      || notif?.related_type === 'dokumen_r1'
+      || text.includes('discrepancy')
+      || text.includes('mismatch')
+      || text.includes('r1');
+  };
+
+  const handleNotificationClick = async (notif) => {
+    if (!notif.sudah_dibaca) {
+      await handleMarkAsRead(notif.ID_notif);
+    }
+
+    if (notif.related_type !== 'dokumen_r1' || !notif.related_id) {
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_BASE_URL}/api/dokumen-r1/${notif.related_id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setReportModalData(response.data?.data || null);
+    } catch (error) {
+      console.error('Error loading vendor report:', error);
+      alert('Failed to load the mismatch report.');
     }
   };
 
@@ -504,6 +551,81 @@ const VendorDashboard = () => {
     }
   };
 
+  const openReportPdf = (report) => {
+    if (!report) return;
+
+    const discrepancy = report.discrepancy || {};
+    const shipment = discrepancy.shipment || {};
+    const item = discrepancy.item || {};
+    const html = `
+      <!doctype html>
+      <html>
+        <head>
+          <title>${report.no_dokumen_r1 || 'Mismatch Report'}</title>
+          <style>
+            body { font-family: Arial, sans-serif; color: #1e293b; margin: 32px; }
+            .header { border-bottom: 3px solid #003399; padding-bottom: 18px; margin-bottom: 24px; }
+            h1 { margin: 0 0 8px; color: #003399; }
+            .muted { color: #64748b; }
+            .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 20px 0; }
+            .box { border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px; }
+            .label { display: block; color: #64748b; font-size: 12px; text-transform: uppercase; font-weight: 700; margin-bottom: 6px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 18px; }
+            th, td { border: 1px solid #cbd5e1; padding: 10px; text-align: left; }
+            th { background: #f8fafc; color: #475569; font-size: 12px; text-transform: uppercase; }
+            .danger { color: #dc2626; font-weight: 700; }
+            .notes { white-space: pre-wrap; line-height: 1.5; }
+            .footer { margin-top: 36px; color: #64748b; font-size: 12px; }
+            @media print { button { display: none; } body { margin: 20px; } }
+          </style>
+        </head>
+        <body>
+          <button onclick="window.print()" style="float:right;padding:10px 14px;background:#003399;color:#fff;border:0;border-radius:6px;">Print / Save PDF</button>
+          <div class="header">
+            <h1>Mismatch Report</h1>
+            <div class="muted">${report.no_dokumen_r1 || '-'} • Status: ${(report.status_dokumen || '-').replaceAll('_', ' ')}</div>
+          </div>
+          <div class="grid">
+            <div class="box"><span class="label">Vendor</span><strong>${shipment.vendor?.nama_vendor || '-'}</strong></div>
+            <div class="box"><span class="label">Shipment</span><strong>${shipment.no_pengiriman || `SHP-${shipment.ID_outbound || '-'}`}</strong></div>
+            <div class="box"><span class="label">Origin</span><strong>${shipment.lokasi_asal || '-'}</strong></div>
+            <div class="box"><span class="label">Dispatch Time</span><strong>${formatDateTime(shipment.waktu_kirim)}</strong></div>
+          </div>
+          <table>
+            <thead><tr><th>Product</th><th>Expected</th><th>Received Accepted</th><th>Difference</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>${item.nama_barang || '-'}</td>
+                <td>${discrepancy.quantity_outbound ?? '-'}</td>
+                <td>${discrepancy.quantity_inbound ?? '-'}</td>
+                <td class="danger">${discrepancy.selisih ?? '-'}</td>
+                <td>${discrepancy.status || '-'}</td>
+              </tr>
+            </tbody>
+          </table>
+          <h2>Report Notes</h2>
+          <div class="box notes">${report.keterangan || '-'}</div>
+          <div class="footer">Generated by Epson Verification System on ${formatDateTime(report.dibuat_at || new Date())}</div>
+        </body>
+      </html>
+    `;
+
+    const reportBlob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const reportUrl = URL.createObjectURL(reportBlob);
+    const reportWindow = window.open(reportUrl, '_blank');
+
+    if (!reportWindow) {
+      const link = document.createElement('a');
+      link.href = reportUrl;
+      link.download = `${report.no_dokumen_r1 || 'mismatch-report'}.html`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }
+
+    window.setTimeout(() => URL.revokeObjectURL(reportUrl), 60000);
+  };
+
   const getStatusBadge = (status) => {
     switch(status) {
       case 'draft': return <span className="status-badge status-draft"><i className="fa-solid fa-pen"></i> Draft</span>;
@@ -555,7 +677,7 @@ const VendorDashboard = () => {
           <div className={`menu-item ${activeTab === 'notifications' ? 'active' : ''}`} onClick={() => setActiveTab('notifications')}>
             <i className="fa-regular fa-bell"></i> Notifications
           </div>
-          <div className="menu-item">
+          <div className={`menu-item ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
             <i className="fa-solid fa-gear"></i> Settings
           </div>
         </div>
@@ -577,6 +699,7 @@ const VendorDashboard = () => {
             {activeTab === 'shipments' && 'Outbound Shipments'}
             {activeTab === 'create-shipment' && 'Create Shipment'}
             {activeTab === 'notifications' && 'Notifications'}
+            {activeTab === 'settings' && 'Settings'}
           </h1>
           
           <div className="header-actions">
@@ -857,34 +980,41 @@ const VendorDashboard = () => {
                       <p>You have no notifications at the moment.</p>
                     </div>
                   ) : (
-                    notifications.map(notif => (
+                    notifications.map(notif => {
+                      const isDiscrepancy = isDiscrepancyNotification(notif);
+                      return (
                       <div 
                         key={notif.ID_notif} 
                         style={{ 
                           padding: '16px 24px', 
                           borderBottom: '1px solid #f1f5f9',
-                          backgroundColor: notif.sudah_dibaca ? 'transparent' : '#f0f9ff',
+                          backgroundColor: notif.sudah_dibaca ? 'transparent' : (isDiscrepancy ? '#fef2f2' : '#f0fdf4'),
                           display: 'flex',
                           alignItems: 'flex-start',
                           gap: '16px',
-                          cursor: notif.sudah_dibaca ? 'default' : 'pointer',
+                          cursor: (!notif.sudah_dibaca || notif.related_type === 'dokumen_r1') ? 'pointer' : 'default',
                           transition: 'background-color 0.2s'
                         }}
-                        onClick={() => !notif.sudah_dibaca && handleMarkAsRead(notif.ID_notif)}
-                        onMouseEnter={(e) => !notif.sudah_dibaca && (e.currentTarget.style.backgroundColor = '#e0f2fe')}
-                        onMouseLeave={(e) => !notif.sudah_dibaca && (e.currentTarget.style.backgroundColor = '#f0f9ff')}
+                        onClick={() => handleNotificationClick(notif)}
+                        onMouseEnter={(e) => (!notif.sudah_dibaca || notif.related_type === 'dokumen_r1') && (e.currentTarget.style.backgroundColor = isDiscrepancy ? '#fee2e2' : '#dcfce7')}
+                        onMouseLeave={(e) => (!notif.sudah_dibaca || notif.related_type === 'dokumen_r1') && (e.currentTarget.style.backgroundColor = notif.sudah_dibaca ? 'transparent' : (isDiscrepancy ? '#fef2f2' : '#f0fdf4'))}
                       >
                         <div style={{ 
                           width: '40px', height: '40px', borderRadius: '50%', 
-                          backgroundColor: notif.related_type === 'discrepancy' ? '#fee2e2' : '#dcfce7',
-                          color: notif.related_type === 'discrepancy' ? '#ef4444' : '#22c55e',
+                          backgroundColor: isDiscrepancy ? '#fee2e2' : '#dcfce7',
+                          color: isDiscrepancy ? '#ef4444' : '#22c55e',
                           display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
                         }}>
-                          <i className={`fa-solid ${notif.related_type === 'discrepancy' ? 'fa-triangle-exclamation' : 'fa-box-open'}`}></i>
+                          <i className={`fa-solid ${isDiscrepancy ? 'fa-triangle-exclamation' : 'fa-box-open'}`}></i>
                         </div>
                         <div style={{ flex: 1 }}>
                           <h4 style={{ margin: '0 0 4px 0', fontSize: '1rem', color: '#1e293b' }}>{notif.judul}</h4>
                           <p style={{ margin: 0, color: '#475569', fontSize: '0.9rem' }}>{notif.pesan}</p>
+                          {notif.related_type === 'dokumen_r1' && (
+                            <span style={{ display: 'inline-flex', marginTop: '8px', fontSize: '0.78rem', color: '#b91c1c', fontWeight: 700 }}>
+                              Click to open mismatch PDF report
+                            </span>
+                          )}
                           <span style={{ display: 'block', marginTop: '8px', fontSize: '0.75rem', color: '#94a3b8' }}>
                             {new Date(notif.created_at).toLocaleString()}
                           </span>
@@ -893,14 +1023,202 @@ const VendorDashboard = () => {
                           <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#3b82f6', marginTop: '6px', flexShrink: 0 }}></div>
                         )}
                       </div>
-                    ))
+                    )})
                   )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SECTION: Settings */}
+          {activeTab === 'settings' && (
+            <div className="page-section active">
+              <div className="settings-grid">
+                <div className="card settings-card">
+                  <div className="card-header">
+                    <h2 className="card-title">Account Profile</h2>
+                    <span className="status-badge status-submitted">Vendor Account</span>
+                  </div>
+                  <div className="settings-profile">
+                    <div className="settings-avatar">{user ? user.nama?.charAt(0).toUpperCase() : 'V'}</div>
+                    <div>
+                      <h3>{user?.nama || 'Vendor Partner'}</h3>
+                      <p>{user?.email || 'No email available'}</p>
+                    </div>
+                  </div>
+                  <div className="settings-detail-list">
+                    <div>
+                      <span>Role</span>
+                      <strong>{user?.role || 'vendor'}</strong>
+                    </div>
+                    <div>
+                      <span>Linked Vendor ID</span>
+                      <strong>{user?.ID_vendor || '-'}</strong>
+                    </div>
+                    <div>
+                      <span>Session Status</span>
+                      <strong>Active</strong>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="card settings-card">
+                  <div className="card-header">
+                    <h2 className="card-title">Notification Preferences</h2>
+                  </div>
+                  <div className="settings-toggles">
+                    <label className="settings-toggle-row">
+                      <div>
+                        <strong>Discrepancy Alerts</strong>
+                        <span>Highlight mismatch and R1 report notifications in red.</span>
+                      </div>
+                      <input type="checkbox" checked={settingsPrefs.discrepancyAlerts} onChange={() => handleSettingsPreferenceChange('discrepancyAlerts')} />
+                    </label>
+                    <label className="settings-toggle-row">
+                      <div>
+                        <strong>Report Alerts</strong>
+                        <span>Show vendor report notifications when a manager sends an R1 document.</span>
+                      </div>
+                      <input type="checkbox" checked={settingsPrefs.reportAlerts} onChange={() => handleSettingsPreferenceChange('reportAlerts')} />
+                    </label>
+                    <label className="settings-toggle-row">
+                      <div>
+                        <strong>QR Download Reminder</strong>
+                        <span>Keep QR download guidance visible in the QR modal workflow.</span>
+                      </div>
+                      <input type="checkbox" checked={settingsPrefs.qrDownloadHint} onChange={() => handleSettingsPreferenceChange('qrDownloadHint')} />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="card settings-card">
+                  <div className="card-header">
+                    <h2 className="card-title">Workflow Shortcuts</h2>
+                  </div>
+                  <div className="settings-actions-list">
+                    <button className="settings-action-btn" onClick={() => setActiveTab('create-shipment')}>
+                      <i className="fa-solid fa-plus"></i>
+                      <div>
+                        <strong>Create New Shipment</strong>
+                        <span>Prepare outbound details and generate QR after submit.</span>
+                      </div>
+                    </button>
+                    <button className="settings-action-btn" onClick={() => setActiveTab('shipments')}>
+                      <i className="fa-solid fa-truck-fast"></i>
+                      <div>
+                        <strong>Review Outbound Shipments</strong>
+                        <span>Open shipment details, QR codes, and status history.</span>
+                      </div>
+                    </button>
+                    <button className="settings-action-btn" onClick={() => setActiveTab('notifications')}>
+                      <i className="fa-regular fa-bell"></i>
+                      <div>
+                        <strong>Open Notifications</strong>
+                        <span>Review R1 reports, discrepancies, and shipment updates.</span>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="card settings-card">
+                  <div className="card-header">
+                    <h2 className="card-title">Security</h2>
+                  </div>
+                  <div className="settings-security">
+                    <div>
+                      <strong>Current session</strong>
+                      <span>Use logout when you are finished on a shared device.</span>
+                    </div>
+                    <button className="btn btn-outline settings-logout-btn" onClick={handleLogout}>
+                      <i className="fa-solid fa-arrow-right-from-bracket"></i> Logout
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           )}
         </div>
       </main>
+
+      {/* Vendor Report Modal */}
+      {reportModalData && (
+        <div className="modal-overlay" style={{
+          position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
+        }}>
+          <div className="modal-content" style={{
+            backgroundColor: 'white', padding: '24px', borderRadius: '12px', width: '90%', maxWidth: '760px', maxHeight: '90vh', overflowY: 'auto'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', marginBottom: '20px' }}>
+              <div>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-dark)', marginBottom: '4px' }}>Mismatch Report</h2>
+                <p style={{ margin: 0, color: '#64748b' }}>{reportModalData.no_dokumen_r1}</p>
+              </div>
+              <button onClick={() => setReportModalData(null)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#64748b' }}>&times;</button>
+            </div>
+
+            <div className="vendor-report-sheet">
+              <div className="vendor-report-head">
+                <div>
+                  <span>Shipment</span>
+                  <strong>{reportModalData.discrepancy?.shipment?.no_pengiriman || `SHP-${reportModalData.discrepancy?.shipment?.ID_outbound || '-'}`}</strong>
+                </div>
+                <span className="status-badge status-discrepancy">Discrepancy</span>
+              </div>
+
+              <div className="shipment-detail-grid">
+                <div>
+                  <span className="detail-label">Vendor</span>
+                  <strong>{reportModalData.discrepancy?.shipment?.vendor?.nama_vendor || '-'}</strong>
+                </div>
+                <div>
+                  <span className="detail-label">Origin</span>
+                  <strong>{reportModalData.discrepancy?.shipment?.lokasi_asal || '-'}</strong>
+                </div>
+                <div>
+                  <span className="detail-label">Dispatch Time</span>
+                  <strong>{formatDateTime(reportModalData.discrepancy?.shipment?.waktu_kirim)}</strong>
+                </div>
+                <div>
+                  <span className="detail-label">Document Status</span>
+                  <strong>{(reportModalData.status_dokumen || '-').replace(/_/g, ' ').toUpperCase()}</strong>
+                </div>
+              </div>
+
+              <div className="vendor-report-mismatch">
+                <div>
+                  <span>Product</span>
+                  <strong>{reportModalData.discrepancy?.item?.nama_barang || '-'}</strong>
+                </div>
+                <div>
+                  <span>Expected</span>
+                  <strong>{reportModalData.discrepancy?.quantity_outbound ?? '-'}</strong>
+                </div>
+                <div>
+                  <span>Received Accepted</span>
+                  <strong>{reportModalData.discrepancy?.quantity_inbound ?? '-'}</strong>
+                </div>
+                <div>
+                  <span>Difference</span>
+                  <strong style={{ color: '#dc2626' }}>{reportModalData.discrepancy?.selisih ?? '-'}</strong>
+                </div>
+              </div>
+
+              <div className="vendor-report-notes">
+                <span>Report Notes</span>
+                <p>{reportModalData.keterangan || '-'}</p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '20px' }}>
+              <button className="btn btn-outline" onClick={() => setReportModalData(null)}>Close</button>
+              <button className="btn btn-primary" onClick={() => openReportPdf(reportModalData)}>
+                <i className="fa-solid fa-file-pdf"></i> Open PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* QR Code Modal */}
       {showQRModal && (
