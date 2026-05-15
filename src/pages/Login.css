@@ -52,7 +52,6 @@ body, html {
   inset: -10px;
   opacity: .72;
   filter: blur(14px) saturate(1.25);
-  will-change: transform, background-position;
   mix-blend-mode: screen;
   background-image:
     repeating-linear-gradient(
@@ -75,7 +74,6 @@ body, html {
   background-size: 300%, 220%;
   background-position: 50% 50%, 50% 50%;
   mask-image: radial-gradient(ellipse at 90% 0%, black 10%, transparent 68%);
-  animation: auroraFlow 22s linear infinite;
 }
 
 .aurora-moving::after {
@@ -103,7 +101,6 @@ body, html {
   background-position: 50% 50%, 50% 50%;
   filter: blur(18px);
   opacity: .78;
-  animation: auroraFlow 28s linear infinite reverse;
   mix-blend-mode: screen;
 }
 
@@ -118,7 +115,6 @@ body, html {
   position: absolute;
   border-radius: 50%;
   mix-blend-mode: screen;
-  animation: floatBlob 14s ease-in-out infinite;
 }
 
 .blob.b1 {
@@ -131,21 +127,18 @@ body, html {
   width: 420px; height: 420px;
   right: 90px; top: 10px;
   background: radial-gradient(circle, rgba(163,100,255,.32) 0%, rgba(163,100,255,.11) 35%, transparent 72%);
-  animation-delay: -4s;
 }
 
 .blob.b3 {
   width: 520px; height: 520px;
   left: 180px; bottom: -130px;
   background: radial-gradient(circle, rgba(26,232,255,.28) 0%, rgba(26,232,255,.10) 30%, transparent 72%);
-  animation-delay: -7s;
 }
 
 .blob.b4 {
   width: 390px; height: 390px;
   right: -40px; bottom: 70px;
   background: radial-gradient(circle, rgba(78,208,255,.26) 0%, rgba(78,208,255,.08) 32%, transparent 72%);
-  animation-delay: -2s;
 }
 
 .left-aurora-streak {
@@ -164,7 +157,6 @@ body, html {
   filter: blur(28px);
   transform: rotate(28deg);
   opacity: .95;
-  animation: sway 12s ease-in-out infinite;
   z-index: 0;
   mix-blend-mode: screen;
 }
@@ -444,24 +436,6 @@ body, html {
 .submit-btn:hover {
   transform: translateY(-1px);
   box-shadow: 0 14px 28px rgba(0,41,140,.26), inset 0 1px 0 rgba(255,255,255,.15);
-}
-
-/* Animations */
-@keyframes auroraFlow {
-  from { background-position: 50% 50%, 50% 50%; }
-  to { background-position: 350% 50%, 350% 50%; }
-}
-
-@keyframes floatBlob {
-  0%, 100% { transform: translateY(0px) translateX(0px) scale(1); }
-  25% { transform: translateY(-18px) translateX(8px) scale(1.03); }
-  50% { transform: translateY(10px) translateX(-10px) scale(0.98); }
-  75% { transform: translateY(-8px) translateX(12px) scale(1.02); }
-}
-
-@keyframes sway {
-  0%, 100% { transform: rotate(28deg) translateY(0); }
-  50% { transform: rotate(24deg) translateY(-16px); }
 }
 
 @media (max-width: 980px) {

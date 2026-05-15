@@ -24,6 +24,7 @@ const ScanOfficerDashboard = () => {
   const [scanFeedback, setScanFeedback] = useState(null);
   const [cameraError, setCameraError] = useState('');
   const [cameraActive, setCameraActive] = useState(false);
+  const [cameraSuccessOverlay, setCameraSuccessOverlay] = useState(null);
 
   // Manual verification state
   const [manualInboundId, setManualInboundId] = useState('');
@@ -36,6 +37,7 @@ const ScanOfficerDashboard = () => {
   const streamRef = useRef(null);
   const scanLoopRef = useRef(null);
   const detectorRef = useRef(null);
+  const cameraSuccessTimerRef = useRef(null);
 
   const fetchInbounds = useCallback(async () => {
     try {
@@ -94,7 +96,7 @@ const ScanOfficerDashboard = () => {
     setCameraActive(false);
   }, []);
 
-  const handleScanSubmit = useCallback(async (scannedToken = qrToken) => {
+  const handleScanSubmit = useCallback(async (scannedToken = qrToken, source = 'manual') => {
     const tokenValue = String(scannedToken || '').trim();
     if (!tokenValue) return;
     setLoading(true);
@@ -112,8 +114,25 @@ const ScanOfficerDashboard = () => {
       });
       
       setScanFeedback({ type: 'success', message: response.data.message, progress: response.data.progress });
+      if (source === 'camera') {
+        setCameraSuccessOverlay({
+          message: response.data.message || 'QR scan successful.',
+          progress: response.data.progress
+        });
+
+        if (cameraSuccessTimerRef.current) {
+          window.clearTimeout(cameraSuccessTimerRef.current);
+        }
+
+        cameraSuccessTimerRef.current = window.setTimeout(() => {
+          setCameraSuccessOverlay(null);
+          stopCamera();
+          cameraSuccessTimerRef.current = null;
+        }, 1800);
+      } else {
+        stopCamera();
+      }
       setQrToken('');
-      stopCamera();
       fetchInbounds();
     } catch (error) {
       const msg = error.response?.data?.message || error.message;
@@ -126,6 +145,12 @@ const ScanOfficerDashboard = () => {
   const startCamera = useCallback(async () => {
     setCameraError('');
     setScanFeedback(null);
+    setCameraSuccessOverlay(null);
+
+    if (cameraSuccessTimerRef.current) {
+      window.clearTimeout(cameraSuccessTimerRef.current);
+      cameraSuccessTimerRef.current = null;
+    }
 
     if (!navigator.mediaDevices?.getUserMedia) {
       setCameraError('Camera access is not supported by this browser. Please use manual entry.');
@@ -166,7 +191,7 @@ const ScanOfficerDashboard = () => {
 
           if (detectedValue) {
             setQrToken(detectedValue);
-            await handleScanSubmit(detectedValue);
+            await handleScanSubmit(detectedValue, 'camera');
             return;
           }
         } catch (error) {
@@ -206,6 +231,10 @@ const ScanOfficerDashboard = () => {
 
     return () => {
       cancelled = true;
+      if (cameraSuccessTimerRef.current) {
+        window.clearTimeout(cameraSuccessTimerRef.current);
+        cameraSuccessTimerRef.current = null;
+      }
       stopCamera();
     };
   }, [scanMethod, startCamera, stopCamera]);
@@ -313,6 +342,28 @@ const ScanOfficerDashboard = () => {
     }
   };
 
+  const formatDateTime = (value) => {
+    if (!value) {
+      return '-';
+    }
+
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  };
+
+  const getScanProgress = (inbound) => {
+    const scanned = inbound.total_qr_sudah_discan ?? inbound.total_box_sudah_discan ?? 0;
+    const total = inbound.total_qr_expected ?? inbound.total_box_expected ?? 0;
+    const percent = total > 0 ? Math.min(100, Math.round((scanned / total) * 100)) : 0;
+
+    return { scanned, total, percent };
+  };
+
+  const handleOpenManualFromLog = (inboundId) => {
+    setManualInboundId(String(inboundId));
+    setActiveTab('manual');
+  };
+
   const getStatusBadge = (status) => {
     switch(status) {
       case 'menunggu': return <span className="badge badge-warning">Awaiting Manual Verification</span>;
@@ -348,7 +399,7 @@ const ScanOfficerDashboard = () => {
           </a>
           
           <div className="nav-section">HISTORY</div>
-          <a href="#" className="nav-item">
+          <a href="#" className={`nav-item ${activeTab === 'logs' ? 'active' : ''}`} onClick={(e) => {e.preventDefault(); setActiveTab('logs');}}>
             <i className="fa-solid fa-clock-rotate-left"></i>
             <span>Scan Logs</span>
           </a>
@@ -388,7 +439,7 @@ const ScanOfficerDashboard = () => {
         <div className="content-wrapper">
           <div className="page-header">
             <div>
-              <h1>{activeTab === 'dashboard' ? 'Incoming Goods Verification' : activeTab === 'scan' ? 'Inbound QR Scan' : 'Manual Verification'}</h1>
+              <h1>{activeTab === 'dashboard' ? 'Incoming Goods Verification' : activeTab === 'scan' ? 'Inbound QR Scan' : activeTab === 'manual' ? 'Manual Verification' : 'Scan Logs'}</h1>
               <p className="subtitle">Scan and verify vendor shipments arriving at the warehouse.</p>
             </div>
             {activeTab === 'dashboard' && (
@@ -505,7 +556,21 @@ const ScanOfficerDashboard = () => {
                     <div className="scanner-overlay">
                       <div className="scanner-box"><div className="scanner-line"></div></div>
                     </div>
-                    {(!cameraActive || cameraError) && (
+                    {cameraSuccessOverlay && (
+                      <div className="camera-success-overlay">
+                        <div className="camera-success-icon">
+                          <i className="fa-solid fa-check"></i>
+                        </div>
+                        <strong>QR Scan Successful</strong>
+                        <span>{cameraSuccessOverlay.message}</span>
+                        {cameraSuccessOverlay.progress && (
+                          <small>
+                            Progress: {cameraSuccessOverlay.progress.scanned} / {cameraSuccessOverlay.progress.total} QR Codes scanned
+                          </small>
+                        )}
+                      </div>
+                    )}
+                    {(!cameraActive || cameraError) && !cameraSuccessOverlay && (
                       <div className="camera-placeholder">
                         <i className={`fa-solid ${cameraError ? 'fa-video-slash' : 'fa-camera'}`}></i>
                         <p>{cameraError || 'Starting camera...'}</p>
@@ -526,7 +591,7 @@ const ScanOfficerDashboard = () => {
                       </div>
                       <small className="form-text">Enter the fallback token printed below the QR code on the box.</small>
                     </div>
-                    <button className="btn btn-primary w-100 mt-2" onClick={handleScanSubmit} disabled={loading || !qrToken}>
+                    <button className="btn btn-primary w-100 mt-2" onClick={() => handleScanSubmit()} disabled={loading || !qrToken}>
                       {loading ? 'Processing...' : 'Verify Token & Process Inbound'}
                     </button>
                   </div>
@@ -682,6 +747,88 @@ const ScanOfficerDashboard = () => {
                           )}
                         </div>
                       ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'logs' && (
+            <div className="scan-logs-view">
+              <div className="scan-log-summary">
+                <div className="scan-log-kpi">
+                  <span>Total Records</span>
+                  <strong>{inbounds.length}</strong>
+                </div>
+                <div className="scan-log-kpi">
+                  <span>Waiting Manual Check</span>
+                  <strong>{stats.pendingManual}</strong>
+                </div>
+                <div className="scan-log-kpi">
+                  <span>Completed</span>
+                  <strong>{stats.cleared}</strong>
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="card-header scan-log-header">
+                  <div>
+                    <h2>Inbound Scan History</h2>
+                    <p>Track scanned QR records and continue manual verification when needed.</p>
+                  </div>
+                  <button className="btn btn-primary" onClick={() => setActiveTab('scan')}>
+                    <i className="fa-solid fa-qrcode"></i> New Scan
+                  </button>
+                </div>
+                <div className="scan-log-list">
+                  {inbounds.map(inbound => {
+                    const progress = getScanProgress(inbound);
+                    const needsManual = inbound.status_scan === 'menunggu' || inbound.status_scan === 'sedang_diproses';
+
+                    return (
+                      <div className="scan-log-item" key={inbound.ID_inbound}>
+                        <div className="scan-log-icon">
+                          <i className={`fa-solid ${inbound.status_scan === 'selesai' ? 'fa-check' : 'fa-clipboard-check'}`}></i>
+                        </div>
+                        <div className="scan-log-main">
+                          <div className="scan-log-title-row">
+                            <div>
+                              <strong>INB-{inbound.ID_inbound}</strong>
+                              <span>Vendor {inbound.ID_vendor || '-'}</span>
+                            </div>
+                            {getStatusBadge(inbound.status_scan)}
+                          </div>
+                          <div className="scan-log-meta">
+                            <span><i className="fa-regular fa-clock"></i> {formatDateTime(inbound.timestamp_terima)}</span>
+                            <span><i className="fa-solid fa-location-dot"></i> {inbound.lokasi_terakhir || 'Warehouse Entry'}</span>
+                            <span><i className="fa-regular fa-user"></i> {inbound.nama_penerima || 'Officer'}</span>
+                          </div>
+                          <div className="scan-log-progress-row">
+                            <div className="scan-log-progress">
+                              <div style={{ width: `${progress.percent}%` }}></div>
+                            </div>
+                            <span>{progress.scanned} / {progress.total} QR scanned</span>
+                          </div>
+                        </div>
+                        <div className="scan-log-actions">
+                          {needsManual ? (
+                            <button className="btn btn-outline" onClick={() => handleOpenManualFromLog(inbound.ID_inbound)}>
+                              <i className="fa-solid fa-pen-to-square"></i> Verify
+                            </button>
+                          ) : (
+                            <span className="scan-log-complete"><i className="fa-solid fa-circle-check"></i> Done</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {inbounds.length === 0 && (
+                    <div className="scan-log-empty">
+                      <i className="fa-solid fa-clock-rotate-left"></i>
+                      <strong>No scan logs yet</strong>
+                      <span>Successful inbound QR scans will appear here.</span>
                     </div>
                   )}
                 </div>

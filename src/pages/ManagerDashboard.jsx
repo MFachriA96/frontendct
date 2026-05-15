@@ -28,6 +28,8 @@ const ManagerDashboard = () => {
   
   // Modal State
   const [resolveModalData, setResolveModalData] = useState(null);
+  const [shipmentModalData, setShipmentModalData] = useState(null);
+  const [shipmentDetailsLoading, setShipmentDetailsLoading] = useState(false);
   const [resolutionType, setResolutionType] = useState('approve'); // approve (mismatch report) or return
   const [resolutionNotes, setResolutionNotes] = useState('');
 
@@ -107,6 +109,25 @@ const ManagerDashboard = () => {
     }
   };
 
+  const handleViewShipmentDetails = async (shipment) => {
+    setShipmentModalData(shipment);
+    setShipmentDetailsLoading(true);
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_BASE_URL}/api/outbound/${shipment.ID_outbound}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setShipmentModalData(response.data?.data || shipment);
+    } catch (error) {
+      console.error('Error fetching shipment details:', error);
+      const msg = error.response?.data?.message || error.message;
+      alert(`Error loading shipment details: ${msg}`);
+    } finally {
+      setShipmentDetailsLoading(false);
+    }
+  };
+
   const pendingDiscrepancies = discrepancies.filter(d => d.status !== 'match');
   const resolvedDiscrepancies = discrepancies.filter(d => d.status === 'match'); // Or ones that have an action, but we mock it via match for now if actions are not fully mapped locally.
   const pendingCount = summary.discrepancy_by_status.mismatch + summary.discrepancy_by_status.missing + summary.discrepancy_by_status.over;
@@ -121,6 +142,23 @@ const ManagerDashboard = () => {
       case 'arrived': return <span className="status-badge status-warning">Arrived (Awaiting Manual Verification)</span>;
       default: return <span className="status-badge status-pending">{status}</span>;
     }
+  };
+
+  const formatDateTime = (value) => {
+    if (!value) {
+      return '-';
+    }
+
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  };
+
+  const getShipmentTotals = (shipment) => {
+    const details = shipment?.details || [];
+    return details.reduce((totals, detail) => ({
+      quantity: totals.quantity + Number(detail.quantity_outbound || 0),
+      boxes: totals.boxes + Number(detail.jumlah_box || 0)
+    }), { quantity: 0, boxes: 0 });
   };
 
   return (
@@ -304,12 +342,12 @@ const ManagerDashboard = () => {
                               <td className="font-medium">SHP-{shp.ID_outbound}</td>
                               <td>{shp.vendor?.nama_vendor || `Vendor ${shp.ID_vendor}`}</td>
                               <td>{getStatusBadge(shp.status)}</td>
-                              <td className="text-muted">{new Date(shp.created_at).toLocaleString()}</td>
+                              <td className="text-muted">{formatDateTime(shp.created_at)}</td>
                               <td>
                                 {shp.status === 'discrepancy' ? (
                                   <button className="btn btn-sm btn-primary" onClick={() => setActiveTab('pending')}>Review</button>
                                 ) : (
-                                  <button className="btn btn-sm btn-outline">Details</button>
+                                  <button className="btn btn-sm btn-outline" onClick={() => handleViewShipmentDetails(shp)}>Details</button>
                                 )}
                               </td>
                             </tr>
@@ -560,6 +598,120 @@ const ManagerDashboard = () => {
               <button className="btn btn-primary" onClick={handleResolve} disabled={loading}>
                 {loading ? 'Processing...' : 'Confirm Resolution'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Shipment Details Modal Overlay */}
+      {shipmentModalData && (
+        <div className="modal-overlay" style={{ display: 'flex' }}>
+          <div className="modal shipment-details-modal">
+            <div className="modal-header">
+              <div>
+                <h2>Shipment Details</h2>
+                <p>SHP-{shipmentModalData.ID_outbound}</p>
+              </div>
+              <button className="close-btn" onClick={() => setShipmentModalData(null)}><i className="fa-solid fa-xmark"></i></button>
+            </div>
+            <div className="modal-body">
+              {shipmentDetailsLoading ? (
+                <div className="modal-loading">
+                  <i className="fa-solid fa-spinner fa-spin"></i>
+                  <p>Loading shipment details...</p>
+                </div>
+              ) : (
+                <>
+                  <div className="shipment-hero">
+                    <div>
+                      <span>Vendor</span>
+                      <strong>{shipmentModalData.vendor?.nama_vendor || `Vendor ${shipmentModalData.ID_vendor || '-'}`}</strong>
+                    </div>
+                    {getStatusBadge(shipmentModalData.status)}
+                  </div>
+
+                  <div className="shipment-detail-grid">
+                    <div>
+                      <span>Delivery Number</span>
+                      <strong>{shipmentModalData.no_pengiriman || '-'}</strong>
+                    </div>
+                    <div>
+                      <span>Origin Location</span>
+                      <strong>{shipmentModalData.lokasi_asal || '-'}</strong>
+                    </div>
+                    <div>
+                      <span>Dispatch Time</span>
+                      <strong>{formatDateTime(shipmentModalData.waktu_kirim)}</strong>
+                    </div>
+                    <div>
+                      <span>Estimated Arrival</span>
+                      <strong>{formatDateTime(shipmentModalData.estimasi_tiba)}</strong>
+                    </div>
+                    <div>
+                      <span>Created At</span>
+                      <strong>{formatDateTime(shipmentModalData.created_at)}</strong>
+                    </div>
+                    <div>
+                      <span>Created By</span>
+                      <strong>{shipmentModalData.creator?.nama || `User ${shipmentModalData.dibuat_oleh || '-'}`}</strong>
+                    </div>
+                  </div>
+
+                  <div className="shipment-total-row">
+                    <div>
+                      <span>Total Items</span>
+                      <strong>{getShipmentTotals(shipmentModalData).quantity}</strong>
+                    </div>
+                    <div>
+                      <span>Total Boxes</span>
+                      <strong>{getShipmentTotals(shipmentModalData).boxes}</strong>
+                    </div>
+                    <div>
+                      <span>Detail Lines</span>
+                      <strong>{shipmentModalData.details?.length || 0}</strong>
+                    </div>
+                  </div>
+
+                  <div className="shipment-items-section">
+                    <h3>Shipment Items</h3>
+                    <div className="table-responsive">
+                      <table className="data-table compact-table">
+                        <thead>
+                          <tr>
+                            <th>Product</th>
+                            <th>Total Qty</th>
+                            <th>Qty / Box</th>
+                            <th>Boxes</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(shipmentModalData.details || []).map(detail => (
+                            <tr key={detail.ID_outbound_detail}>
+                              <td className="font-medium">{detail.nama_barang || `Barang ${detail.ID_barang || '-'}`}</td>
+                              <td>{detail.quantity_outbound ?? '-'}</td>
+                              <td>{detail.quantity_per_box ?? '-'}</td>
+                              <td>{detail.jumlah_box ?? '-'}</td>
+                            </tr>
+                          ))}
+                          {(!shipmentModalData.details || shipmentModalData.details.length === 0) && (
+                            <tr>
+                              <td colSpan="4" className="text-center" style={{ padding: '20px' }}>No item details available.</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-outline" onClick={() => setShipmentModalData(null)}>Close</button>
+              {shipmentModalData.status === 'discrepancy' && (
+                <button className="btn btn-primary" onClick={() => { setShipmentModalData(null); setActiveTab('pending'); }}>
+                  Review Discrepancy
+                </button>
+              )}
             </div>
           </div>
         </div>
