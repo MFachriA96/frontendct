@@ -545,42 +545,61 @@ const ScanOfficerDashboard = () => {
                 </div>
 
                 {scanMethod === 'camera' ? (
-                  <div className="camera-viewport">
-                    <video
-                      ref={videoRef}
-                      className="camera-video"
-                      muted
-                      playsInline
-                      autoPlay
-                    />
-                    <div className="scanner-overlay">
-                      <div className="scanner-box"><div className="scanner-line"></div></div>
+                  <>
+                    {scanFeedback?.type === 'success' && (
+                      <div className="scan-success-banner">
+                        <div className="scan-success-banner-icon">
+                          <i className="fa-solid fa-check-circle"></i>
+                        </div>
+                        <div>
+                          <strong>Successfully Scanned</strong>
+                          <span>{scanFeedback.message}</span>
+                          {scanFeedback.progress && (
+                            <small>
+                              Progress: {scanFeedback.progress.scanned} / {scanFeedback.progress.total} QR Codes scanned
+                            </small>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="camera-viewport">
+                      <video
+                        ref={videoRef}
+                        className="camera-video"
+                        muted
+                        playsInline
+                        autoPlay
+                      />
+                      <div className="scanner-overlay">
+                        <div className="scanner-box"><div className="scanner-line"></div></div>
+                      </div>
+                      {cameraSuccessOverlay && (
+                        <div className="camera-success-overlay">
+                          <div className="camera-success-icon">
+                            <i className="fa-solid fa-check"></i>
+                          </div>
+                          <strong>QR Scan Successful</strong>
+                          <span>{cameraSuccessOverlay.message}</span>
+                          {cameraSuccessOverlay.progress && (
+                            <small>
+                              Progress: {cameraSuccessOverlay.progress.scanned} / {cameraSuccessOverlay.progress.total} QR Codes scanned
+                            </small>
+                          )}
+                        </div>
+                      )}
+                      {(!cameraActive || cameraError) && !cameraSuccessOverlay && (
+                        <div className="camera-placeholder">
+                          <i className={`fa-solid ${cameraError ? 'fa-video-slash' : 'fa-camera'}`}></i>
+                          <p>{cameraError || 'Starting camera...'}</p>
+                          <div className="camera-actions">
+                            <button className="btn btn-outline" onClick={startCamera}>Retry Camera</button>
+                            <button className="btn btn-outline" onClick={() => setScanMethod('manual')}>Use Manual Input</button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    {cameraSuccessOverlay && (
-                      <div className="camera-success-overlay">
-                        <div className="camera-success-icon">
-                          <i className="fa-solid fa-check"></i>
-                        </div>
-                        <strong>QR Scan Successful</strong>
-                        <span>{cameraSuccessOverlay.message}</span>
-                        {cameraSuccessOverlay.progress && (
-                          <small>
-                            Progress: {cameraSuccessOverlay.progress.scanned} / {cameraSuccessOverlay.progress.total} QR Codes scanned
-                          </small>
-                        )}
-                      </div>
-                    )}
-                    {(!cameraActive || cameraError) && !cameraSuccessOverlay && (
-                      <div className="camera-placeholder">
-                        <i className={`fa-solid ${cameraError ? 'fa-video-slash' : 'fa-camera'}`}></i>
-                        <p>{cameraError || 'Starting camera...'}</p>
-                        <div className="camera-actions">
-                          <button className="btn btn-outline" onClick={startCamera}>Retry Camera</button>
-                          <button className="btn btn-outline" onClick={() => setScanMethod('manual')}>Use Manual Input</button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  </>
                 ) : (
                   <div className="manual-entry-form">
                     <div className="form-group">
@@ -597,7 +616,7 @@ const ScanOfficerDashboard = () => {
                   </div>
                 )}
 
-                {scanFeedback && (
+                {scanFeedback && !(scanMethod === 'camera' && scanFeedback.type === 'success') && (
                   <div style={{ marginTop: '20px', padding: '15px', borderRadius: '8px', backgroundColor: scanFeedback.type === 'success' ? '#dcfce7' : '#fee2e2', color: scanFeedback.type === 'success' ? '#166534' : '#991b1b' }}>
                     <div style={{ fontWeight: 'bold' }}>{scanFeedback.type === 'success' ? <><i className="fa-solid fa-check-circle"></i> Success</> : <><i className="fa-solid fa-triangle-exclamation"></i> Error</>}</div>
                     <div>{scanFeedback.message}</div>
