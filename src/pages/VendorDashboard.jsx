@@ -6,12 +6,27 @@ import { API_BASE_URL } from '../config/api';
 import './VendorDashboard.css';
 
 const VendorDashboard = () => {
+  const approvedProductNames = [
+    'Printer Housing Cover',
+    'Paper Tray Assembly',
+    'Scanner Unit Assembly',
+    'Ink Tank Module',
+    'Print Head Unit',
+    'Paper Feed Assembly',
+    'Control Panel Assembly',
+    'Power Supply Unit',
+    'Mainboard Assembly',
+    'Roller Assembly'
+  ];
+
   const [activeTab, setActiveTab] = useState('dashboard');
   const [shipments, setShipments] = useState([]);
   const [authChecking, setAuthChecking] = useState(true);
   const [shipmentsLoading, setShipmentsLoading] = useState(false);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
+  const [productOptions, setProductOptions] = useState([]);
+  const [productsLoading, setProductsLoading] = useState(false);
   const [user, setUser] = useState(() => {
     const userData = localStorage.getItem('user');
     return userData ? JSON.parse(userData) : null;
@@ -21,7 +36,7 @@ const VendorDashboard = () => {
   const [lokasiAsal, setLokasiAsal] = useState('');
   const [waktuKirim, setWaktuKirim] = useState('');
   const [estimasiTiba, setEstimasiTiba] = useState('');
-  const [items, setItems] = useState([{ nama_barang: '', quantity_outbound: 100, quantity_per_box: 10 }]);
+  const [items, setItems] = useState([{ ID_barang: '', nama_barang: '', product_mode: 'select', quantity_outbound: 100, quantity_per_box: 10 }]);
 
   // QR Modal State
   const [showQRModal, setShowQRModal] = useState(false);
@@ -30,9 +45,23 @@ const VendorDashboard = () => {
   const [qrLoading, setQrLoading] = useState(false);
   const [qrCache, setQrCache] = useState({});
 
+  // Shipment Details Modal State
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [selectedShipmentDetails, setSelectedShipmentDetails] = useState(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [reportModalData, setReportModalData] = useState(null);
+
   // Notifications State
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [settingsPrefs, setSettingsPrefs] = useState(() => {
+    const savedPrefs = localStorage.getItem('vendorSettingsPrefs');
+    return savedPrefs ? JSON.parse(savedPrefs) : {
+      discrepancyAlerts: true,
+      reportAlerts: true,
+      qrDownloadHint: true,
+    };
+  });
 
   const navigate = useNavigate();
 
@@ -137,6 +166,33 @@ const VendorDashboard = () => {
     }
   };
 
+  const fetchProductOptions = async (session) => {
+    try {
+      setProductsLoading(true);
+      const activeSession = session || await ensureVendorSession({ silent: true });
+      if (!activeSession) {
+        setProductOptions([]);
+        return;
+      }
+
+      const response = await axios.get(`${API_BASE_URL}/api/barang/options`, {
+        headers: activeSession.headers
+      });
+      const productData = response.data?.data || [];
+      const approvedProducts = Array.isArray(productData)
+        ? productData
+            .filter(product => approvedProductNames.includes(product.nama_barang))
+            .sort((a, b) => approvedProductNames.indexOf(a.nama_barang) - approvedProductNames.indexOf(b.nama_barang))
+        : [];
+      setProductOptions(approvedProducts);
+    } catch (error) {
+      console.error('Error fetching product options:', error);
+      setProductOptions([]);
+    } finally {
+      setProductsLoading(false);
+    }
+  };
+
   const handleMarkAsRead = async (id) => {
     try {
       const token = localStorage.getItem('token');
@@ -161,6 +217,44 @@ const VendorDashboard = () => {
     }
   };
 
+  const handleSettingsPreferenceChange = (field) => {
+    setSettingsPrefs(prev => {
+      const nextPrefs = { ...prev, [field]: !prev[field] };
+      localStorage.setItem('vendorSettingsPrefs', JSON.stringify(nextPrefs));
+      return nextPrefs;
+    });
+  };
+
+  const isDiscrepancyNotification = (notif) => {
+    const text = `${notif?.judul || ''} ${notif?.pesan || ''}`.toLowerCase();
+    return notif?.related_type === 'discrepancy'
+      || notif?.related_type === 'dokumen_r1'
+      || text.includes('discrepancy')
+      || text.includes('mismatch')
+      || text.includes('r1');
+  };
+
+  const handleNotificationClick = async (notif) => {
+    if (!notif.sudah_dibaca) {
+      await handleMarkAsRead(notif.ID_notif);
+    }
+
+    if (notif.related_type !== 'dokumen_r1' || !notif.related_id) {
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_BASE_URL}/api/dokumen-r1/${notif.related_id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setReportModalData(response.data?.data || null);
+    } catch (error) {
+      console.error('Error loading vendor report:', error);
+      alert('Failed to load the mismatch report.');
+    }
+  };
+
   useEffect(() => {
     const initializeDashboard = async () => {
       setAuthChecking(true);
@@ -172,7 +266,8 @@ const VendorDashboard = () => {
 
       await Promise.all([
         fetchShipments(),
-        fetchNotifications()
+        fetchNotifications(),
+        fetchProductOptions(session)
       ]);
       setAuthChecking(false);
     };
@@ -197,7 +292,7 @@ const VendorDashboard = () => {
   };
 
   const handleAddItem = () => {
-    setItems([...items, { nama_barang: '', quantity_outbound: 100, quantity_per_box: 10 }]);
+    setItems([...items, { ID_barang: '', nama_barang: '', product_mode: 'select', quantity_outbound: 100, quantity_per_box: 10 }]);
   };
 
   const handleRemoveItem = (index) => {
@@ -212,6 +307,29 @@ const VendorDashboard = () => {
     setItems(newItems);
   };
 
+  const handleProductSelectionChange = (index, value) => {
+    const newItems = [...items];
+
+    if (value === 'custom') {
+      newItems[index] = {
+        ...newItems[index],
+        ID_barang: '',
+        nama_barang: '',
+        product_mode: 'custom'
+      };
+    } else {
+      const selectedProduct = productOptions.find(product => String(product.ID_barang) === value);
+      newItems[index] = {
+        ...newItems[index],
+        ID_barang: value,
+        nama_barang: selectedProduct?.nama_barang || '',
+        product_mode: 'select'
+      };
+    }
+
+    setItems(newItems);
+  };
+
   const handleSubmitShipment = async (isSubmit) => {
     setSubmitLoading(true);
     try {
@@ -220,12 +338,28 @@ const VendorDashboard = () => {
         return;
       }
 
-      const details = items.map(item => ({
-        nama_barang: item.nama_barang,
-        quantity_outbound: parseInt(item.quantity_outbound),
-        quantity_per_box: parseInt(item.quantity_per_box),
-        jumlah_box: Math.ceil(parseInt(item.quantity_outbound) / parseInt(item.quantity_per_box))
-      }));
+      const details = items.map(item => {
+        const quantityOutbound = parseInt(item.quantity_outbound);
+        const quantityPerBox = parseInt(item.quantity_per_box);
+        const baseDetail = {
+          quantity_outbound: quantityOutbound,
+          quantity_per_box: quantityPerBox,
+          jumlah_box: Math.ceil(quantityOutbound / quantityPerBox)
+        };
+
+        if (item.product_mode === 'custom' || !item.ID_barang) {
+          return {
+            ...baseDetail,
+            nama_barang: item.nama_barang
+          };
+        }
+
+        return {
+          ...baseDetail,
+          ID_barang: parseInt(item.ID_barang),
+          nama_barang: item.nama_barang
+        };
+      });
 
       const payload = {
         waktu_kirim: waktuKirim + ' 00:00:00', // API might expect datetime
@@ -262,7 +396,7 @@ const VendorDashboard = () => {
       setLokasiAsal('');
       setWaktuKirim('');
       setEstimasiTiba('');
-      setItems([{ nama_barang: '', quantity_outbound: 100, quantity_per_box: 10 }]);
+      setItems([{ ID_barang: '', nama_barang: '', product_mode: 'select', quantity_outbound: 100, quantity_per_box: 10 }]);
       setActiveTab('shipments');
       fetchShipments();
 
@@ -324,6 +458,174 @@ const VendorDashboard = () => {
     }
   };
 
+  const formatDateTime = (value) => {
+    if (!value) {
+      return '-';
+    }
+
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  };
+
+  const getQrFileName = (token, index) => {
+    const detailId = token?.ID_outbound_detail || index + 1;
+    return `shipment-${selectedShipmentId || 'qr'}-detail-${detailId}-qr.png`;
+  };
+
+  const handleDownloadQr = (token, index) => {
+    if (!token?.qr_token) {
+      alert('QR token is not available for this item yet.');
+      return;
+    }
+
+    const svgElement = document.getElementById(`qr-svg-${token.ID_outbound_detail || index}`);
+    if (!svgElement) {
+      alert('QR code is still rendering. Please try again.');
+      return;
+    }
+
+    const svgData = new XMLSerializer().serializeToString(svgElement);
+    const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+    const svgUrl = URL.createObjectURL(svgBlob);
+    const image = new Image();
+
+    image.onload = () => {
+      const padding = 24;
+      const size = Math.max(image.width || 150, image.height || 150);
+      const canvas = document.createElement('canvas');
+      canvas.width = size + padding * 2;
+      canvas.height = size + padding * 2;
+
+      const context = canvas.getContext('2d');
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, padding, padding, size, size);
+
+      canvas.toBlob((blob) => {
+        URL.revokeObjectURL(svgUrl);
+        if (!blob) {
+          alert('Failed to prepare QR image for download.');
+          return;
+        }
+
+        const downloadUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = getQrFileName(token, index);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(downloadUrl);
+      }, 'image/png');
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(svgUrl);
+      alert('Failed to prepare QR image for download.');
+    };
+
+    image.src = svgUrl;
+  };
+
+  const handleViewShipmentDetails = async (shipment) => {
+    setSelectedShipmentDetails(shipment);
+    setShowDetailsModal(true);
+    setDetailsLoading(true);
+
+    try {
+      const session = await ensureVendorSession();
+      if (!session) {
+        setShowDetailsModal(false);
+        return;
+      }
+
+      const response = await axios.get(`${API_BASE_URL}/api/outbound/${shipment.ID_outbound}`, {
+        headers: session.headers
+      });
+      setSelectedShipmentDetails(response.data?.data || shipment);
+    } catch (error) {
+      console.error('Error fetching shipment details:', error);
+      alert('Failed to load shipment details.');
+    } finally {
+      setDetailsLoading(false);
+    }
+  };
+
+  const openReportPdf = (report) => {
+    if (!report) return;
+
+    const discrepancy = report.discrepancy || {};
+    const shipment = discrepancy.shipment || {};
+    const item = discrepancy.item || {};
+    const html = `
+      <!doctype html>
+      <html>
+        <head>
+          <title>${report.no_dokumen_r1 || 'Mismatch Report'}</title>
+          <style>
+            body { font-family: Arial, sans-serif; color: #1e293b; margin: 32px; }
+            .header { border-bottom: 3px solid #003399; padding-bottom: 18px; margin-bottom: 24px; }
+            h1 { margin: 0 0 8px; color: #003399; }
+            .muted { color: #64748b; }
+            .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 20px 0; }
+            .box { border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px; }
+            .label { display: block; color: #64748b; font-size: 12px; text-transform: uppercase; font-weight: 700; margin-bottom: 6px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 18px; }
+            th, td { border: 1px solid #cbd5e1; padding: 10px; text-align: left; }
+            th { background: #f8fafc; color: #475569; font-size: 12px; text-transform: uppercase; }
+            .danger { color: #dc2626; font-weight: 700; }
+            .notes { white-space: pre-wrap; line-height: 1.5; }
+            .footer { margin-top: 36px; color: #64748b; font-size: 12px; }
+            @media print { button { display: none; } body { margin: 20px; } }
+          </style>
+        </head>
+        <body>
+          <button onclick="window.print()" style="float:right;padding:10px 14px;background:#003399;color:#fff;border:0;border-radius:6px;">Print / Save PDF</button>
+          <div class="header">
+            <h1>Mismatch Report</h1>
+            <div class="muted">${report.no_dokumen_r1 || '-'} • Status: ${(report.status_dokumen || '-').replaceAll('_', ' ')}</div>
+          </div>
+          <div class="grid">
+            <div class="box"><span class="label">Vendor</span><strong>${shipment.vendor?.nama_vendor || '-'}</strong></div>
+            <div class="box"><span class="label">Shipment</span><strong>${shipment.no_pengiriman || `SHP-${shipment.ID_outbound || '-'}`}</strong></div>
+            <div class="box"><span class="label">Origin</span><strong>${shipment.lokasi_asal || '-'}</strong></div>
+            <div class="box"><span class="label">Dispatch Time</span><strong>${formatDateTime(shipment.waktu_kirim)}</strong></div>
+          </div>
+          <table>
+            <thead><tr><th>Product</th><th>Expected</th><th>Received Accepted</th><th>Difference</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>${item.nama_barang || '-'}</td>
+                <td>${discrepancy.quantity_outbound ?? '-'}</td>
+                <td>${discrepancy.quantity_inbound ?? '-'}</td>
+                <td class="danger">${discrepancy.selisih ?? '-'}</td>
+                <td>${discrepancy.status || '-'}</td>
+              </tr>
+            </tbody>
+          </table>
+          <h2>Report Notes</h2>
+          <div class="box notes">${report.keterangan || '-'}</div>
+          <div class="footer">Generated by Epson Verification System on ${formatDateTime(report.dibuat_at || new Date())}</div>
+        </body>
+      </html>
+    `;
+
+    const reportBlob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const reportUrl = URL.createObjectURL(reportBlob);
+    const reportWindow = window.open(reportUrl, '_blank');
+
+    if (!reportWindow) {
+      const link = document.createElement('a');
+      link.href = reportUrl;
+      link.download = `${report.no_dokumen_r1 || 'mismatch-report'}.html`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }
+
+    window.setTimeout(() => URL.revokeObjectURL(reportUrl), 60000);
+  };
+
   const getStatusBadge = (status) => {
     switch(status) {
       case 'draft': return <span className="status-badge status-draft"><i className="fa-solid fa-pen"></i> Draft</span>;
@@ -375,7 +677,7 @@ const VendorDashboard = () => {
           <div className={`menu-item ${activeTab === 'notifications' ? 'active' : ''}`} onClick={() => setActiveTab('notifications')}>
             <i className="fa-regular fa-bell"></i> Notifications
           </div>
-          <div className="menu-item">
+          <div className={`menu-item ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
             <i className="fa-solid fa-gear"></i> Settings
           </div>
         </div>
@@ -397,6 +699,7 @@ const VendorDashboard = () => {
             {activeTab === 'shipments' && 'Outbound Shipments'}
             {activeTab === 'create-shipment' && 'Create Shipment'}
             {activeTab === 'notifications' && 'Notifications'}
+            {activeTab === 'settings' && 'Settings'}
           </h1>
           
           <div className="header-actions">
@@ -476,7 +779,7 @@ const VendorDashboard = () => {
                     ) : shipments.slice(0, 5).map(ship => (
                       <tr key={ship.ID_outbound}>
                         <td><strong>{ship.ID_outbound}</strong></td>
-                        <td>{new Date(ship.created_at).toLocaleString()}</td>
+                        <td>{formatDateTime(ship.created_at)}</td>
                         <td>{ship.lokasi_asal}</td>
                         <td>{getStatusBadge(ship.status)}</td>
                         <td>
@@ -530,7 +833,7 @@ const VendorDashboard = () => {
                     ) : shipments.map(ship => (
                       <tr key={ship.ID_outbound}>
                         <td><strong>{ship.ID_outbound}</strong></td>
-                        <td>{new Date(ship.waktu_kirim).toLocaleDateString()}</td>
+                        <td>{formatDateTime(ship.waktu_kirim)}</td>
                         <td>{ship.lokasi_asal}</td>
                         <td>{getStatusBadge(ship.status)}</td>
                         <td>
@@ -556,7 +859,7 @@ const VendorDashboard = () => {
                           {ship.status === 'submitted' && (
                             <button className="btn btn-primary" style={{ padding: '6px 12px', marginRight: '8px' }} onClick={() => handleViewQR(ship.ID_outbound)}>QR Code</button>
                           )}
-                          <button className="btn btn-outline" style={{ padding: '6px 12px' }}>Details</button>
+                          <button className="btn btn-outline" style={{ padding: '6px 12px' }} onClick={() => handleViewShipmentDetails(ship)}>Details</button>
                         </td>
                       </tr>
                     ))}
@@ -605,7 +908,29 @@ const VendorDashboard = () => {
                     <div className="item-row" key={index}>
                       <div className="form-group" style={{ margin: 0 }}>
                         <label className="form-label">Item / Product Name</label>
-                        <input type="text" className="form-control" placeholder="Enter item name..." value={item.nama_barang} onChange={(e) => handleItemChange(index, 'nama_barang', e.target.value)} />
+                        <select
+                          className="form-control"
+                          value={item.product_mode === 'custom' ? 'custom' : item.ID_barang}
+                          onChange={(e) => handleProductSelectionChange(index, e.target.value)}
+                          disabled={productsLoading}
+                        >
+                          <option value="">{productsLoading ? 'Loading products...' : 'Choose product...'}</option>
+                          {productOptions.map(product => (
+                            <option key={product.ID_barang} value={product.ID_barang}>
+                              {product.nama_barang}
+                            </option>
+                          ))}
+                          <option value="custom">Custom Product</option>
+                        </select>
+                        {item.product_mode === 'custom' && (
+                          <input
+                            type="text"
+                            className="form-control product-custom-input"
+                            placeholder="Enter custom product name..."
+                            value={item.nama_barang}
+                            onChange={(e) => handleItemChange(index, 'nama_barang', e.target.value)}
+                          />
+                        )}
                       </div>
                       <div className="form-group" style={{ margin: 0 }}>
                         <label className="form-label">Total Quantity</label>
@@ -655,34 +980,41 @@ const VendorDashboard = () => {
                       <p>You have no notifications at the moment.</p>
                     </div>
                   ) : (
-                    notifications.map(notif => (
+                    notifications.map(notif => {
+                      const isDiscrepancy = isDiscrepancyNotification(notif);
+                      return (
                       <div 
                         key={notif.ID_notif} 
                         style={{ 
                           padding: '16px 24px', 
                           borderBottom: '1px solid #f1f5f9',
-                          backgroundColor: notif.sudah_dibaca ? 'transparent' : '#f0f9ff',
+                          backgroundColor: notif.sudah_dibaca ? 'transparent' : (isDiscrepancy ? '#fef2f2' : '#f0fdf4'),
                           display: 'flex',
                           alignItems: 'flex-start',
                           gap: '16px',
-                          cursor: notif.sudah_dibaca ? 'default' : 'pointer',
+                          cursor: (!notif.sudah_dibaca || notif.related_type === 'dokumen_r1') ? 'pointer' : 'default',
                           transition: 'background-color 0.2s'
                         }}
-                        onClick={() => !notif.sudah_dibaca && handleMarkAsRead(notif.ID_notif)}
-                        onMouseEnter={(e) => !notif.sudah_dibaca && (e.currentTarget.style.backgroundColor = '#e0f2fe')}
-                        onMouseLeave={(e) => !notif.sudah_dibaca && (e.currentTarget.style.backgroundColor = '#f0f9ff')}
+                        onClick={() => handleNotificationClick(notif)}
+                        onMouseEnter={(e) => (!notif.sudah_dibaca || notif.related_type === 'dokumen_r1') && (e.currentTarget.style.backgroundColor = isDiscrepancy ? '#fee2e2' : '#dcfce7')}
+                        onMouseLeave={(e) => (!notif.sudah_dibaca || notif.related_type === 'dokumen_r1') && (e.currentTarget.style.backgroundColor = notif.sudah_dibaca ? 'transparent' : (isDiscrepancy ? '#fef2f2' : '#f0fdf4'))}
                       >
                         <div style={{ 
                           width: '40px', height: '40px', borderRadius: '50%', 
-                          backgroundColor: notif.related_type === 'discrepancy' ? '#fee2e2' : '#dcfce7',
-                          color: notif.related_type === 'discrepancy' ? '#ef4444' : '#22c55e',
+                          backgroundColor: isDiscrepancy ? '#fee2e2' : '#dcfce7',
+                          color: isDiscrepancy ? '#ef4444' : '#22c55e',
                           display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
                         }}>
-                          <i className={`fa-solid ${notif.related_type === 'discrepancy' ? 'fa-triangle-exclamation' : 'fa-box-open'}`}></i>
+                          <i className={`fa-solid ${isDiscrepancy ? 'fa-triangle-exclamation' : 'fa-box-open'}`}></i>
                         </div>
                         <div style={{ flex: 1 }}>
                           <h4 style={{ margin: '0 0 4px 0', fontSize: '1rem', color: '#1e293b' }}>{notif.judul}</h4>
                           <p style={{ margin: 0, color: '#475569', fontSize: '0.9rem' }}>{notif.pesan}</p>
+                          {notif.related_type === 'dokumen_r1' && (
+                            <span style={{ display: 'inline-flex', marginTop: '8px', fontSize: '0.78rem', color: '#b91c1c', fontWeight: 700 }}>
+                              Click to open mismatch PDF report
+                            </span>
+                          )}
                           <span style={{ display: 'block', marginTop: '8px', fontSize: '0.75rem', color: '#94a3b8' }}>
                             {new Date(notif.created_at).toLocaleString()}
                           </span>
@@ -691,14 +1023,202 @@ const VendorDashboard = () => {
                           <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#3b82f6', marginTop: '6px', flexShrink: 0 }}></div>
                         )}
                       </div>
-                    ))
+                    )})
                   )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SECTION: Settings */}
+          {activeTab === 'settings' && (
+            <div className="page-section active">
+              <div className="settings-grid">
+                <div className="card settings-card">
+                  <div className="card-header">
+                    <h2 className="card-title">Account Profile</h2>
+                    <span className="status-badge status-submitted">Vendor Account</span>
+                  </div>
+                  <div className="settings-profile">
+                    <div className="settings-avatar">{user ? user.nama?.charAt(0).toUpperCase() : 'V'}</div>
+                    <div>
+                      <h3>{user?.nama || 'Vendor Partner'}</h3>
+                      <p>{user?.email || 'No email available'}</p>
+                    </div>
+                  </div>
+                  <div className="settings-detail-list">
+                    <div>
+                      <span>Role</span>
+                      <strong>{user?.role || 'vendor'}</strong>
+                    </div>
+                    <div>
+                      <span>Linked Vendor ID</span>
+                      <strong>{user?.ID_vendor || '-'}</strong>
+                    </div>
+                    <div>
+                      <span>Session Status</span>
+                      <strong>Active</strong>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="card settings-card">
+                  <div className="card-header">
+                    <h2 className="card-title">Notification Preferences</h2>
+                  </div>
+                  <div className="settings-toggles">
+                    <label className="settings-toggle-row">
+                      <div>
+                        <strong>Discrepancy Alerts</strong>
+                        <span>Highlight mismatch and R1 report notifications in red.</span>
+                      </div>
+                      <input type="checkbox" checked={settingsPrefs.discrepancyAlerts} onChange={() => handleSettingsPreferenceChange('discrepancyAlerts')} />
+                    </label>
+                    <label className="settings-toggle-row">
+                      <div>
+                        <strong>Report Alerts</strong>
+                        <span>Show vendor report notifications when a manager sends an R1 document.</span>
+                      </div>
+                      <input type="checkbox" checked={settingsPrefs.reportAlerts} onChange={() => handleSettingsPreferenceChange('reportAlerts')} />
+                    </label>
+                    <label className="settings-toggle-row">
+                      <div>
+                        <strong>QR Download Reminder</strong>
+                        <span>Keep QR download guidance visible in the QR modal workflow.</span>
+                      </div>
+                      <input type="checkbox" checked={settingsPrefs.qrDownloadHint} onChange={() => handleSettingsPreferenceChange('qrDownloadHint')} />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="card settings-card">
+                  <div className="card-header">
+                    <h2 className="card-title">Workflow Shortcuts</h2>
+                  </div>
+                  <div className="settings-actions-list">
+                    <button className="settings-action-btn" onClick={() => setActiveTab('create-shipment')}>
+                      <i className="fa-solid fa-plus"></i>
+                      <div>
+                        <strong>Create New Shipment</strong>
+                        <span>Prepare outbound details and generate QR after submit.</span>
+                      </div>
+                    </button>
+                    <button className="settings-action-btn" onClick={() => setActiveTab('shipments')}>
+                      <i className="fa-solid fa-truck-fast"></i>
+                      <div>
+                        <strong>Review Outbound Shipments</strong>
+                        <span>Open shipment details, QR codes, and status history.</span>
+                      </div>
+                    </button>
+                    <button className="settings-action-btn" onClick={() => setActiveTab('notifications')}>
+                      <i className="fa-regular fa-bell"></i>
+                      <div>
+                        <strong>Open Notifications</strong>
+                        <span>Review R1 reports, discrepancies, and shipment updates.</span>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="card settings-card">
+                  <div className="card-header">
+                    <h2 className="card-title">Security</h2>
+                  </div>
+                  <div className="settings-security">
+                    <div>
+                      <strong>Current session</strong>
+                      <span>Use logout when you are finished on a shared device.</span>
+                    </div>
+                    <button className="btn btn-outline settings-logout-btn" onClick={handleLogout}>
+                      <i className="fa-solid fa-arrow-right-from-bracket"></i> Logout
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           )}
         </div>
       </main>
+
+      {/* Vendor Report Modal */}
+      {reportModalData && (
+        <div className="modal-overlay" style={{
+          position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
+        }}>
+          <div className="modal-content" style={{
+            backgroundColor: 'white', padding: '24px', borderRadius: '12px', width: '90%', maxWidth: '760px', maxHeight: '90vh', overflowY: 'auto'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', marginBottom: '20px' }}>
+              <div>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-dark)', marginBottom: '4px' }}>Mismatch Report</h2>
+                <p style={{ margin: 0, color: '#64748b' }}>{reportModalData.no_dokumen_r1}</p>
+              </div>
+              <button onClick={() => setReportModalData(null)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#64748b' }}>&times;</button>
+            </div>
+
+            <div className="vendor-report-sheet">
+              <div className="vendor-report-head">
+                <div>
+                  <span>Shipment</span>
+                  <strong>{reportModalData.discrepancy?.shipment?.no_pengiriman || `SHP-${reportModalData.discrepancy?.shipment?.ID_outbound || '-'}`}</strong>
+                </div>
+                <span className="status-badge status-discrepancy">Discrepancy</span>
+              </div>
+
+              <div className="shipment-detail-grid">
+                <div>
+                  <span className="detail-label">Vendor</span>
+                  <strong>{reportModalData.discrepancy?.shipment?.vendor?.nama_vendor || '-'}</strong>
+                </div>
+                <div>
+                  <span className="detail-label">Origin</span>
+                  <strong>{reportModalData.discrepancy?.shipment?.lokasi_asal || '-'}</strong>
+                </div>
+                <div>
+                  <span className="detail-label">Dispatch Time</span>
+                  <strong>{formatDateTime(reportModalData.discrepancy?.shipment?.waktu_kirim)}</strong>
+                </div>
+                <div>
+                  <span className="detail-label">Document Status</span>
+                  <strong>{(reportModalData.status_dokumen || '-').replace(/_/g, ' ').toUpperCase()}</strong>
+                </div>
+              </div>
+
+              <div className="vendor-report-mismatch">
+                <div>
+                  <span>Product</span>
+                  <strong>{reportModalData.discrepancy?.item?.nama_barang || '-'}</strong>
+                </div>
+                <div>
+                  <span>Expected</span>
+                  <strong>{reportModalData.discrepancy?.quantity_outbound ?? '-'}</strong>
+                </div>
+                <div>
+                  <span>Received Accepted</span>
+                  <strong>{reportModalData.discrepancy?.quantity_inbound ?? '-'}</strong>
+                </div>
+                <div>
+                  <span>Difference</span>
+                  <strong style={{ color: '#dc2626' }}>{reportModalData.discrepancy?.selisih ?? '-'}</strong>
+                </div>
+              </div>
+
+              <div className="vendor-report-notes">
+                <span>Report Notes</span>
+                <p>{reportModalData.keterangan || '-'}</p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '20px' }}>
+              <button className="btn btn-outline" onClick={() => setReportModalData(null)}>Close</button>
+              <button className="btn btn-primary" onClick={() => openReportPdf(reportModalData)}>
+                <i className="fa-solid fa-file-pdf"></i> Open PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* QR Code Modal */}
       {showQRModal && (
@@ -723,7 +1243,7 @@ const VendorDashboard = () => {
               ) : qrTokens.map((token, idx) => (
                 <div key={idx} className="qr-token-card">
                   <div style={{ background: 'white', padding: '10px', display: 'inline-block', borderRadius: '8px', marginBottom: '12px' }}>
-                    <QRCodeSVG value={token.qr_token || 'QR_TOKEN_NOT_AVAILABLE'} size={150} />
+                    <QRCodeSVG id={`qr-svg-${token.ID_outbound_detail || idx}`} value={token.qr_token || 'QR_TOKEN_NOT_AVAILABLE'} size={150} />
                   </div>
                   <div style={{ fontSize: '0.875rem', fontWeight: 500, color: '#475569', wordBreak: 'break-all' }}>
                     Detail ID: {token.ID_outbound_detail}<br/>
@@ -740,6 +1260,15 @@ const VendorDashboard = () => {
                     >
                       <i className="fa-regular fa-copy"></i> Copy Token
                     </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary qr-copy-btn"
+                      style={{ marginTop: '10px' }}
+                      disabled={!token.qr_token}
+                      onClick={() => handleDownloadQr(token, idx)}
+                    >
+                      <i className="fa-solid fa-download"></i> Download QR
+                    </button>
                   </div>
                 </div>
               ))}
@@ -749,10 +1278,90 @@ const VendorDashboard = () => {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
 
-            <div style={{ marginTop: '24px', textAlign: 'right' }}>
-              <button className="btn btn-primary" onClick={() => window.print()}>Print QR Codes</button>
+      {/* Shipment Details Modal */}
+      {showDetailsModal && (
+        <div className="modal-overlay" style={{
+          position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
+        }}>
+          <div className="modal-content shipment-details-modal" style={{
+            backgroundColor: 'white', padding: '24px', borderRadius: '12px', width: '90%', maxWidth: '760px', maxHeight: '90vh', overflowY: 'auto'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-dark)' }}>
+                Shipment Details {selectedShipmentDetails?.ID_outbound ? `#${selectedShipmentDetails.ID_outbound}` : ''}
+              </h2>
+              <button onClick={() => setShowDetailsModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#64748b' }}>&times;</button>
             </div>
+
+            {detailsLoading ? (
+              <div style={{ textAlign: 'center', padding: '32px 20px', color: '#64748b' }}>
+                <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '2rem', marginBottom: '16px' }}></i>
+                <p>Loading shipment details...</p>
+              </div>
+            ) : selectedShipmentDetails && (
+              <>
+                <div className="shipment-detail-grid">
+                  <div>
+                    <span className="detail-label">Origin Location</span>
+                    <strong>{selectedShipmentDetails.lokasi_asal || '-'}</strong>
+                  </div>
+                  <div>
+                    <span className="detail-label">Shipping Time</span>
+                    <strong>{formatDateTime(selectedShipmentDetails.waktu_kirim)}</strong>
+                  </div>
+                  <div>
+                    <span className="detail-label">Estimated Arrival</span>
+                    <strong>{formatDateTime(selectedShipmentDetails.estimasi_tiba)}</strong>
+                  </div>
+                  <div>
+                    <span className="detail-label">Status</span>
+                    {getStatusBadge(selectedShipmentDetails.status)}
+                  </div>
+                  <div>
+                    <span className="detail-label">Shipment Number</span>
+                    <strong>{selectedShipmentDetails.no_pengiriman || '-'}</strong>
+                  </div>
+                  <div>
+                    <span className="detail-label">Created At</span>
+                    <strong>{formatDateTime(selectedShipmentDetails.created_at)}</strong>
+                  </div>
+                </div>
+
+                <div className="shipment-items-table">
+                  <h3>Shipment Items</h3>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Product Name</th>
+                        <th>Total Quantity</th>
+                        <th>Quantity Per Box</th>
+                        <th>Boxes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(selectedShipmentDetails.details || []).map((detail) => (
+                        <tr key={detail.ID_outbound_detail}>
+                          <td>{detail.nama_barang || `Barang ${detail.ID_barang || '-'}`}</td>
+                          <td>{detail.quantity_outbound ?? '-'}</td>
+                          <td>{detail.quantity_per_box ?? '-'}</td>
+                          <td>{detail.jumlah_box ?? '-'}</td>
+                        </tr>
+                      ))}
+                      {(!selectedShipmentDetails.details || selectedShipmentDetails.details.length === 0) && (
+                        <tr>
+                          <td colSpan="4" style={{ textAlign: 'center' }}>No item details available.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

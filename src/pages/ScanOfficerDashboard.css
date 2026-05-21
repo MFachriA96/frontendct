@@ -492,6 +492,52 @@ body {
     justify-content: center;
 }
 
+.scan-success-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    margin-bottom: 1rem;
+    padding: 1rem;
+    border: 1px solid #86efac;
+    border-radius: var(--radius-md);
+    background: #dcfce7;
+    color: #166534;
+    box-shadow: 0 10px 24px rgba(16, 185, 129, 0.14);
+}
+
+.scan-success-banner-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-full);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    background: #ffffff;
+    color: var(--success);
+    font-size: 1.35rem;
+}
+
+.scan-success-banner strong,
+.scan-success-banner span,
+.scan-success-banner small {
+    display: block;
+}
+
+.scan-success-banner strong {
+    font-size: 1rem;
+    margin-bottom: 0.18rem;
+}
+
+.scan-success-banner span {
+    line-height: 1.4;
+}
+
+.scan-success-banner small {
+    margin-top: 0.3rem;
+    font-weight: 700;
+}
+
 .camera-video {
     width: 100%;
     height: 100%;
@@ -550,6 +596,57 @@ body {
     justify-content: center;
     z-index: 1;
     pointer-events: none;
+}
+
+.camera-success-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    padding: 1.5rem;
+    text-align: center;
+    color: #ecfdf5;
+    background: rgba(6, 95, 70, 0.82);
+    backdrop-filter: blur(2px);
+    animation: cameraSuccessIn 0.18s ease-out;
+}
+
+.camera-success-icon {
+    width: 76px;
+    height: 76px;
+    border-radius: var(--radius-full);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #ecfdf5;
+    color: var(--success);
+    font-size: 2.4rem;
+    box-shadow: 0 14px 30px rgba(6, 95, 70, 0.35);
+}
+
+.camera-success-overlay strong {
+    font-size: 1.35rem;
+    font-weight: 800;
+}
+
+.camera-success-overlay span,
+.camera-success-overlay small {
+    max-width: 520px;
+    line-height: 1.45;
+}
+
+.camera-success-overlay small {
+    color: #bbf7d0;
+    font-weight: 600;
+}
+
+@keyframes cameraSuccessIn {
+    from { opacity: 0; transform: scale(0.98); }
+    to { opacity: 1; transform: scale(1); }
 }
 
 .scanner-box {
@@ -767,6 +864,177 @@ body {
     color: #92400e;
 }
 
+/* Scan Logs */
+.scan-logs-view {
+    display: grid;
+    gap: 1.5rem;
+}
+
+.scan-log-summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.scan-log-kpi {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    box-shadow: var(--shadow-sm);
+}
+
+.scan-log-kpi span {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.scan-log-kpi strong {
+    color: var(--text-main);
+    font-size: 1.75rem;
+    line-height: 1;
+}
+
+.scan-log-header {
+    gap: 1rem;
+}
+
+.scan-log-header p {
+    color: var(--text-muted);
+    font-size: 0.88rem;
+    margin-top: 0.25rem;
+}
+
+.scan-log-list {
+    display: grid;
+}
+
+.scan-log-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 1rem;
+    align-items: center;
+    padding: 1.1rem 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.scan-log-item:last-child {
+    border-bottom: 0;
+}
+
+.scan-log-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-full);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--success-light);
+    color: var(--success);
+}
+
+.scan-log-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.55rem;
+}
+
+.scan-log-title-row > div {
+    display: flex;
+    align-items: baseline;
+    gap: 0.65rem;
+    min-width: 0;
+}
+
+.scan-log-title-row strong {
+    font-size: 1rem;
+}
+
+.scan-log-title-row span {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.scan-log-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.9rem;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    margin-bottom: 0.8rem;
+}
+
+.scan-log-meta span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.scan-log-progress-row {
+    display: grid;
+    grid-template-columns: minmax(120px, 1fr) auto;
+    align-items: center;
+    gap: 0.8rem;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.scan-log-progress {
+    height: 8px;
+    overflow: hidden;
+    border-radius: var(--radius-full);
+    background: #e2e8f0;
+}
+
+.scan-log-progress div {
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(135deg, var(--success), #34d399);
+}
+
+.scan-log-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.scan-log-complete {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    color: var(--success);
+    font-weight: 700;
+    font-size: 0.9rem;
+}
+
+.scan-log-empty {
+    display: flex;
+    min-height: 220px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.scan-log-empty i {
+    color: #cbd5e1;
+    font-size: 3rem;
+}
+
+.scan-log-empty strong {
+    color: var(--text-main);
+    font-size: 1.05rem;
+}
+
 /* Modal */
 .modal-overlay {
     position: fixed;
@@ -883,29 +1151,55 @@ body {
 
 @media (max-width: 900px) {
     .scan-officer-dashboard.app-container {
+        flex-direction: column;
         overflow-x: hidden;
     }
 
     .scan-officer-dashboard .sidebar {
         position: relative;
         z-index: 20;
+        width: 100%;
+        flex: 0 0 auto;
+        flex-direction: row;
+        align-items: center;
+        gap: 0.5rem;
         overflow: hidden;
+        border-right: 0;
+        border-bottom: 1px solid var(--border-color);
     }
 
     .scan-officer-dashboard .sidebar-header {
+        flex: 0 0 auto;
         padding: 0.85rem 1rem;
+        border-bottom: 0;
     }
 
     .scan-officer-dashboard .sidebar-nav {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 0.65rem;
-        overflow: visible;
-        padding: 0.85rem 1rem;
+        display: flex;
+        flex: 1 1 auto;
+        min-width: 0;
+        gap: 0.55rem;
+        overflow-x: auto;
+        overflow-y: hidden;
+        justify-content: flex-start;
+        padding: 0.75rem 0.5rem;
+        scroll-snap-type: x proximity;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+
+    .scan-officer-dashboard .sidebar-nav::-webkit-scrollbar {
+        height: 0;
+    }
+
+    .scan-officer-dashboard .nav-section {
+        display: none;
     }
 
     .scan-officer-dashboard .sidebar-footer {
-        padding: 0 1rem 1rem;
+        flex: 0 0 auto;
+        padding: 0.75rem 0.85rem 0.75rem 0.35rem;
+        border-top: 0;
     }
 
     .scan-officer-dashboard .sidebar-footer .nav-item {
@@ -914,14 +1208,16 @@ body {
     }
 
     .scan-officer-dashboard .nav-item {
-        min-width: 0;
+        flex: 0 0 auto;
+        min-width: max-content;
         justify-content: center;
         gap: 0.55rem;
-        padding: 0.75rem 0.65rem;
-        white-space: normal;
+        padding: 0.7rem 0.85rem;
+        white-space: nowrap;
         text-align: center;
         line-height: 1.2;
         margin-bottom: 0;
+        scroll-snap-align: end;
     }
 
     .scan-officer-dashboard .nav-item i {
@@ -935,7 +1231,7 @@ body {
 
     .scan-officer-dashboard .topbar {
         display: grid;
-        grid-template-columns: 1fr auto;
+        grid-template-columns: minmax(0, 1fr) auto;
         align-items: center;
         gap: 0.75rem;
         padding: 0.85rem 1rem;
@@ -949,10 +1245,11 @@ body {
     }
 
     .scan-officer-dashboard .search-bar {
-        grid-column: 1 / -1;
-        grid-row: 2;
+        grid-column: 1;
+        grid-row: 1;
         order: initial;
         width: 100%;
+        min-width: 0;
     }
 
     .scan-officer-dashboard .user-profile {
@@ -992,6 +1289,20 @@ body {
         grid-template-columns: 1fr !important;
     }
 
+    .scan-officer-dashboard .scan-log-summary {
+        grid-template-columns: 1fr;
+    }
+
+    .scan-officer-dashboard .scan-log-item {
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: flex-start;
+    }
+
+    .scan-officer-dashboard .scan-log-actions {
+        grid-column: 2;
+        justify-content: flex-start;
+    }
+
     .scan-officer-dashboard .scan-module {
         max-width: 100% !important;
     }
@@ -1016,14 +1327,14 @@ body {
     }
 
     .scan-officer-dashboard .sidebar-nav {
-        grid-template-columns: 1fr 1fr;
-        padding: 0.75rem;
+        padding: 0.65rem 0.35rem 0.65rem 0.75rem;
         gap: 0.5rem;
+        max-width: calc(100vw - 96px);
     }
 
     .scan-officer-dashboard .nav-item {
         font-size: 0.82rem;
-        padding: 0.7rem 0.45rem;
+        padding: 0.7rem 0.75rem;
     }
 
     .scan-officer-dashboard .nav-item i {
@@ -1033,15 +1344,25 @@ body {
     }
 
     .scan-officer-dashboard .sidebar-footer {
-        padding: 0 0.75rem 0.75rem;
+        padding: 0.65rem 0.75rem 0.65rem 0.25rem;
     }
 
     .scan-officer-dashboard .topbar {
         padding: 0.75rem;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.55rem;
     }
 
     .scan-officer-dashboard .icon-btn {
         display: none;
+    }
+
+    .scan-officer-dashboard .search-bar {
+        padding: 0.45rem 0.7rem;
+    }
+
+    .scan-officer-dashboard .search-bar input {
+        font-size: 0.82rem;
     }
 
     .scan-officer-dashboard .stat-card {
@@ -1071,6 +1392,16 @@ body {
 
     .scan-officer-dashboard .tab-btn {
         flex: 1;
+    }
+
+    .scan-officer-dashboard .scan-log-header,
+    .scan-officer-dashboard .scan-log-title-row {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .scan-officer-dashboard .scan-log-progress-row {
+        grid-template-columns: 1fr;
     }
 
     .camera-actions .btn {

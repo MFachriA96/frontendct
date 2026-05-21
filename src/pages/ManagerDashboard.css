@@ -509,6 +509,183 @@ body {
 
 .empty-state h3 { font-size: 1.5rem; color: var(--text-main); margin-bottom: 0.5rem; }
 
+/* Manager Sidebar Sections */
+.manager-section-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.section-summary-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    box-shadow: var(--shadow-sm);
+}
+
+.section-summary-card span {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.55rem;
+    text-transform: uppercase;
+}
+
+.section-summary-card strong {
+    color: var(--text-main);
+    font-size: 1.85rem;
+    line-height: 1;
+}
+
+.section-card-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-main);
+}
+
+.section-card-header h2 {
+    font-size: 1.1rem;
+    margin-bottom: 0.25rem;
+}
+
+.section-card-header p {
+    color: var(--text-muted);
+    font-size: 0.88rem;
+}
+
+.verification-results-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1rem;
+}
+
+.verification-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    padding: 1.1rem;
+}
+
+.verification-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.verification-card-top > div {
+    min-width: 0;
+}
+
+.verification-card-top strong {
+    display: block;
+    color: var(--text-main);
+    margin-bottom: 0.25rem;
+}
+
+.verification-card-top span:not(.status-badge) {
+    color: var(--text-muted);
+    font-size: 0.82rem;
+}
+
+.verification-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.65rem;
+    margin-bottom: 1rem;
+}
+
+.verification-metrics div {
+    background: var(--bg-main);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 0.75rem;
+    text-align: center;
+}
+
+.verification-metrics span {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    margin-bottom: 0.35rem;
+    text-transform: uppercase;
+}
+
+.verification-metrics strong {
+    font-size: 1.2rem;
+}
+
+.verification-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+}
+
+.standalone-review-grid {
+    padding: 0;
+}
+
+.resolved-discrepancy-list {
+    display: grid;
+}
+
+.resolved-discrepancy-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 1rem;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.resolved-discrepancy-item:last-child {
+    border-bottom: 0;
+}
+
+.resolved-discrepancy-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: var(--radius-full);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--success);
+    background: var(--success-light);
+}
+
+.resolved-discrepancy-icon.returned {
+    color: var(--danger);
+    background: var(--danger-light);
+}
+
+.resolved-discrepancy-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.4rem;
+}
+
+.resolved-discrepancy-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
 /* Modal */
 .modal-overlay {
     position: fixed;
@@ -589,6 +766,167 @@ body {
 }
 
 .close-btn { background: transparent; border: none; font-size: 1.25rem; cursor: pointer; color: var(--text-muted); }
+
+.manager-dashboard .shipment-details-modal {
+    max-width: 820px;
+}
+
+.manager-dashboard .shipment-details-modal .modal-header p {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin-top: 0.25rem;
+}
+
+.manager-dashboard .modal-loading {
+    display: flex;
+    min-height: 240px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.8rem;
+    color: var(--text-muted);
+}
+
+.manager-dashboard .modal-loading i {
+    color: var(--primary);
+    font-size: 2rem;
+}
+
+.manager-dashboard .shipment-hero {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem;
+    background: var(--bg-main);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    margin-bottom: 1rem;
+}
+
+.manager-dashboard .shipment-hero span,
+.manager-dashboard .shipment-detail-grid span,
+.manager-dashboard .shipment-total-row span {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.35rem;
+    text-transform: uppercase;
+}
+
+.manager-dashboard .shipment-hero strong {
+    color: var(--text-main);
+    font-size: 1.2rem;
+}
+
+.manager-dashboard .shipment-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.9rem;
+    margin-bottom: 1rem;
+}
+
+.manager-dashboard .shipment-detail-grid > div,
+.manager-dashboard .shipment-total-row > div {
+    padding: 0.9rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: #ffffff;
+}
+
+.manager-dashboard .shipment-detail-grid strong,
+.manager-dashboard .shipment-total-row strong {
+    color: var(--text-main);
+    line-height: 1.4;
+}
+
+.manager-dashboard .shipment-total-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.9rem;
+    margin-bottom: 1.25rem;
+}
+
+.manager-dashboard .shipment-total-row strong {
+    font-size: 1.35rem;
+}
+
+.manager-dashboard .shipment-items-section h3 {
+    margin-bottom: 0.8rem;
+    font-size: 1rem;
+}
+
+.manager-dashboard .compact-table th,
+.manager-dashboard .compact-table td {
+    padding: 0.8rem 1rem;
+}
+
+.manager-dashboard .report-preview-modal {
+    max-width: 860px;
+}
+
+.manager-dashboard .report-preview-modal .modal-header p {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin-top: 0.25rem;
+}
+
+.manager-dashboard .report-preview-sheet {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: #ffffff;
+    padding: 1.2rem;
+}
+
+.manager-dashboard .report-preview-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    padding-bottom: 1rem;
+    margin-bottom: 1rem;
+    border-bottom: 2px solid var(--primary);
+}
+
+.manager-dashboard .report-preview-head span,
+.manager-dashboard .report-mismatch-row span,
+.manager-dashboard .report-notes span {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.35rem;
+    text-transform: uppercase;
+}
+
+.manager-dashboard .report-preview-head strong {
+    color: var(--text-main);
+    font-size: 1.25rem;
+}
+
+.manager-dashboard .report-mismatch-row {
+    display: grid;
+    grid-template-columns: 2fr repeat(3, 1fr);
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.manager-dashboard .report-mismatch-row > div,
+.manager-dashboard .report-notes {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 0.9rem;
+    background: var(--bg-main);
+}
+
+.manager-dashboard .report-notes p {
+    margin: 0;
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
 
 @media (max-width: 900px) {
     .manager-dashboard.app-container {
@@ -760,6 +1098,21 @@ body {
         padding: 1rem;
     }
 
+    .manager-dashboard .standalone-review-grid {
+        padding: 0;
+    }
+
+    .manager-dashboard .manager-section-grid,
+    .manager-dashboard .verification-results-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .manager-dashboard .resolved-discrepancy-title {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
     .manager-dashboard .modal-overlay {
         align-items: flex-start;
         overflow-y: auto;
@@ -770,6 +1123,12 @@ body {
         width: 100%;
         max-height: calc(100vh - 2rem);
         overflow-y: auto;
+    }
+
+    .manager-dashboard .shipment-detail-grid,
+    .manager-dashboard .shipment-total-row,
+    .manager-dashboard .report-mismatch-row {
+        grid-template-columns: 1fr;
     }
 }
 
