@@ -1,31 +1,45 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/api';
+import {
+  buildRecentShipmentActivity,
+  buildShipmentChartSegments,
+  filterShipmentsByStatusGroup,
+  getDiscrepancyStatusCounts,
+  getShipmentStatusCounts,
+  normalizeAnalyticsResponse,
+  buildTrendChartData,
+  buildDiscrepancyByPartRows,
+  summarizeAuditEvidence,
+} from '../utils/dashboardLogic';
+import AnalyticsTrendChart from '../components/AnalyticsTrendChart';
 import './ManagerDashboard.css';
 
 const ManagerDashboard = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const [activeSidebar, setActiveSidebar] = useState('dashboard');
-  const [user, setUser] = useState(() => {
+  const [shipmentStatusFilter, setShipmentStatusFilter] = useState('total');
+  const [overviewVendorFilter, setOverviewVendorFilter] = useState('all');
+  const [overviewStatusFilter, setOverviewStatusFilter] = useState('all');
+  const [user] = useState(() => {
     const userData = localStorage.getItem('user');
     return userData ? JSON.parse(userData) : null;
   });
   const [loading, setLoading] = useState(false);
 
   // Data State
-  const [summary, setSummary] = useState({
-    total_outbound_today: 0,
-    total_inbound_today: 0,
-    total_discrepancy_today: 0,
-    pending_actions: 0,
-    discrepancy_by_status: { match: 0, mismatch: 0, missing: 0, over: 0 }
-  });
   const [shipments, setShipments] = useState([]);
   const [discrepancies, setDiscrepancies] = useState([]);
+  const [managerOverview, setManagerOverview] = useState(null);
   const [analyticsData, setAnalyticsData] = useState([]);
   const [reportsData, setReportsData] = useState([]);
   const [dashboardLoading, setDashboardLoading] = useState(true);
+  const [managerAnalytics, setManagerAnalytics] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState(null);
+  const [analyticsVendorFilter, setAnalyticsVendorFilter] = useState('all');
+  const [analyticsFetched, setAnalyticsFetched] = useState(false);
   const [secondaryLoading, setSecondaryLoading] = useState(false);
   
   // Modal State
@@ -43,22 +57,28 @@ const ManagerDashboard = () => {
     return Array.isArray(responseData) ? responseData : (responseData?.data || []);
   };
 
+  const normalizeOverviewResponse = (data) => data?.data || null;
+
   const fetchData = async ({ includeSecondary = true } = {}) => {
     const token = localStorage.getItem('token');
     const headers = { Authorization: `Bearer ${token}` };
 
     setDashboardLoading(true);
 
-    const [summaryResult, outboundResult, discrepancyResult] = await Promise.allSettled([
-      axios.get(`${API_BASE_URL}/api/dashboard/summary`, { headers }),
+    const [overviewResult, outboundResult, discrepancyResult] = await Promise.allSettled([
+      axios.get(`${API_BASE_URL}/api/dashboard/manager-overview`, { headers }),
       axios.get(`${API_BASE_URL}/api/outbound`, { headers }),
       axios.get(`${API_BASE_URL}/api/discrepancy`, { headers })
     ]);
 
-    if (summaryResult.status === 'fulfilled') {
-      setSummary(summaryResult.value.data.data);
+    if (overviewResult.status === 'fulfilled') {
+      const overview = normalizeOverviewResponse(overviewResult.value.data);
+      setManagerOverview(overview);
+      setAnalyticsData(overview?.vendor_performance || []);
     } else {
-      console.error('Error fetching dashboard summary:', summaryResult.reason);
+      console.error('Error fetching manager overview:', overviewResult.reason);
+      setManagerOverview(null);
+      setAnalyticsData([]);
     }
 
     if (outboundResult.status === 'fulfilled') {
@@ -80,16 +100,9 @@ const ManagerDashboard = () => {
     }
 
     setSecondaryLoading(true);
-    const [performanceResult, reportsResult] = await Promise.allSettled([
-      axios.get(`${API_BASE_URL}/api/dashboard/vendor-performance`, { headers }),
+    const [reportsResult] = await Promise.allSettled([
       axios.get(`${API_BASE_URL}/api/dokumen-r1`, { headers })
     ]);
-
-    if (performanceResult.status === 'fulfilled') {
-      setAnalyticsData(performanceResult.value.data.data || []);
-    } else {
-      console.error('Error fetching vendor performance:', performanceResult.reason);
-    }
 
     if (reportsResult.status === 'fulfilled') {
       setReportsData(normalizeListResponse(reportsResult.value.data));
@@ -100,9 +113,42 @@ const ManagerDashboard = () => {
     setSecondaryLoading(false);
   };
 
+  const fetchManagerAnalytics = async (vendorId = null) => {
+    const token = localStorage.getItem('token');
+    const params = vendorId && vendorId !== 'all' ? `?vendor_id=${vendorId}` : '';
+    setAnalyticsLoading(true);
+    setAnalyticsError(null);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/dashboard/manager-analytics${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setManagerAnalytics(normalizeAnalyticsResponse(res.data));
+      setAnalyticsFetched(true);
+    } catch (err) {
+      setAnalyticsError(err.response?.data?.message || err.message || 'Failed to load analytics.');
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+
+  const handleAnalyticsVendorFilter = (vendorId) => {
+    setAnalyticsVendorFilter(vendorId);
+    fetchManagerAnalytics(vendorId);
+  };
+
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (activeSidebar === 'analytics' && !analyticsFetched) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      fetchManagerAnalytics();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSidebar]);
 
   const handleLogout = async () => {
     try {
@@ -112,7 +158,9 @@ const ManagerDashboard = () => {
           headers: { Authorization: `Bearer ${token}` }
         });
       }
-    } catch (e) {}
+    } catch (error) {
+      console.error(error);
+    }
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     navigate('/login');
@@ -202,17 +250,44 @@ const ManagerDashboard = () => {
   const pendingDiscrepancies = discrepancies.filter(d => d.status !== 'match' && !hasCompletedAction(d));
   const resolvedDiscrepancies = discrepancies.filter(d => d.status !== 'match' && hasCompletedAction(d));
   const inboundReceivedItems = discrepancies.filter(d => d.status === 'match' || isAcceptedDiscrepancy(d));
-  const pendingCount = pendingDiscrepancies.length;
+  const shipmentCounts = managerOverview?.shipment_counts || getShipmentStatusCounts(shipments);
+  const pendingCount = Number(managerOverview?.discrepancy_breakdown?.pending_review ?? pendingDiscrepancies.length);
+  const filteredShipments = filterShipmentsByStatusGroup(shipments, shipmentStatusFilter);
+  const discrepancyStatusCounts = managerOverview?.discrepancy_breakdown?.by_status || getDiscrepancyStatusCounts(discrepancies);
+  const shipmentChartSegments = buildShipmentChartSegments(shipmentCounts);
+  const shipmentActivity = Array.isArray(managerOverview?.recent_shipments) && managerOverview.recent_shipments.length > 0
+    ? buildRecentShipmentActivity(managerOverview.recent_shipments, 4)
+    : buildRecentShipmentActivity(shipments, 4);
+  const agingSla = managerOverview?.aging_sla || {
+    overdue_shipping: 0,
+    awaiting_verification: 0,
+  };
+  const pendingReviewQueue = Array.isArray(managerOverview?.pending_review_queue)
+    ? managerOverview.pending_review_queue
+    : pendingDiscrepancies.slice(0, 5);
+  const vendorOptions = Array.from(new Set(
+    shipments
+      .map((shipment) => shipment.vendor?.nama_vendor || (shipment.ID_vendor ? `Vendor ${shipment.ID_vendor}` : ''))
+      .filter(Boolean)
+  )).sort((a, b) => a.localeCompare(b));
+  const overviewFilteredShipments = shipments.filter((shipment) => {
+    const vendorName = shipment.vendor?.nama_vendor || (shipment.ID_vendor ? `Vendor ${shipment.ID_vendor}` : '');
+    const vendorMatches = overviewVendorFilter === 'all' || vendorName === overviewVendorFilter;
+    const statusMatches = overviewStatusFilter === 'all'
+      || (overviewStatusFilter === 'discrepancy' ? shipment.has_discrepancy : shipment.status === overviewStatusFilter);
+    return vendorMatches && statusMatches;
+  });
 
   const getStatusBadge = (status) => {
     switch(status) {
       case 'verified': return <span className="status-badge status-success">Verified</span>;
+      case 'delivered': return <span className="status-badge status-success">Delivered</span>;
       case 'discrepancy': return <span className="status-badge status-danger">Discrepancy</span>;
       case 'in_transit': return <span className="status-badge status-warning">In Transit</span>;
       case 'draft': return <span className="status-badge status-pending">Draft</span>;
-      case 'submitted': return <span className="status-badge status-pending">Pending Scan</span>;
+      case 'submitted': return <span className="status-badge status-pending">Submitted</span>;
       case 'arrived': return <span className="status-badge status-warning">Arrived (Awaiting Manual Verification)</span>;
-      default: return <span className="status-badge status-pending">{status}</span>;
+      default: return <span className="status-badge status-pending">{String(status || 'Unknown').replace(/_/g, ' ')}</span>;
     }
   };
 
@@ -223,6 +298,14 @@ const ManagerDashboard = () => {
 
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  };
+
+  const formatRate = (value) => {
+    if (typeof value === 'number') {
+      return `${(value * 100).toFixed(1)}%`;
+    }
+
+    return value || '-';
   };
 
   const getShipmentTotals = (shipment) => {
@@ -246,9 +329,11 @@ const ManagerDashboard = () => {
       [],
       ['Summary'],
       ['Metric', 'Value'],
-      ['Total Shipments Today', summary.total_outbound_today],
-      ['Inbound Received Today', summary.total_inbound_today],
-      ['Items Matched', summary.discrepancy_by_status.match],
+      ['Total Shipments', shipmentCounts.total],
+      ['Shipping', shipmentCounts.shipping],
+      ['Delivered', shipmentCounts.delivered],
+      ['Shipment Discrepancy', shipmentCounts.discrepancy],
+      ['Items Matched', discrepancyStatusCounts.match],
       ['Pending Review', pendingCount],
       [],
       ['Shipment Overview'],
@@ -380,6 +465,12 @@ const ManagerDashboard = () => {
     setActiveTab('pending');
   };
 
+  const openManagerShipmentFilter = (filter) => {
+    setShipmentStatusFilter(filter);
+    setActiveSidebar('shipments');
+    setActiveTab('overview');
+  };
+
   return (
     <div className="app-container manager-dashboard">
       {/* Sidebar */}
@@ -476,42 +567,184 @@ const ManagerDashboard = () => {
 
               {/* Stats KPI Row */}
               <div className="stats-kpi-container">
-                <div className="kpi-card border-blue">
+                <button type="button" className="kpi-card kpi-card-action border-blue" onClick={() => openManagerShipmentFilter('total')}>
                   <div className="kpi-header">
-                    <span className="kpi-title">Total Shipments (Today)</span>
+                    <span className="kpi-title">Total Shipments</span>
                     <i className="fa-solid fa-box-open text-muted"></i>
                   </div>
-                  <div className="kpi-value">{summary.total_outbound_today}</div>
-                  <div className="kpi-trend text-success"><i className="fa-solid fa-arrow-trend-up"></i> Ongoing tracking</div>
-                </div>
+                  <div className="kpi-value">{shipmentCounts.total}</div>
+                  <div className="kpi-trend text-success"><i className="fa-solid fa-arrow-trend-up"></i> Live outbound records</div>
+                </button>
                 
-                <div className="kpi-card border-success">
+                <button type="button" className="kpi-card kpi-card-action border-info" onClick={() => openManagerShipmentFilter('shipping')}>
                   <div className="kpi-header">
-                    <span className="kpi-title">Items Matched</span>
+                    <span className="kpi-title">Shipping</span>
+                    <i className="fa-solid fa-truck-fast text-muted"></i>
+                  </div>
+                  <div className="kpi-value">{shipmentCounts.shipping}</div>
+                  <div className="kpi-trend text-muted">Submitted or in transit</div>
+                </button>
+
+                <button type="button" className="kpi-card kpi-card-action border-success" onClick={() => openManagerShipmentFilter('delivered')}>
+                  <div className="kpi-header">
+                    <span className="kpi-title">Delivered</span>
                     <i className="fa-regular fa-circle-check text-muted"></i>
                   </div>
-                  <div className="kpi-value">{summary.discrepancy_by_status.match} <span className="kpi-unit">boxes</span></div>
-                  <div className="kpi-trend text-muted">Across all verified shipments</div>
-                </div>
+                  <div className="kpi-value">{shipmentCounts.delivered}</div>
+                  <div className="kpi-trend text-muted">Arrived, verified, or delivered</div>
+                </button>
 
-                <div className="kpi-card border-warning">
+                <button type="button" className="kpi-card kpi-card-action border-warning" onClick={() => openManagerShipmentFilter('discrepancy')}>
                   <div className="kpi-header">
-                    <span className="kpi-title">Pending Review</span>
+                    <span className="kpi-title">Shipment Discrepancy</span>
                     <i className="fa-solid fa-triangle-exclamation text-muted"></i>
                   </div>
-                  <div className={`kpi-value ${pendingCount > 0 ? 'text-warning' : ''}`}>{pendingCount} <span className="kpi-unit">discrepancies</span></div>
-                  <div className={`kpi-trend ${pendingCount > 0 ? 'text-danger' : 'text-muted'}`}>
-                    {pendingCount > 0 ? <><i className="fa-solid fa-circle-exclamation"></i> Requires immediate action</> : 'All clear for now'}
+                  <div className={`kpi-value ${shipmentCounts.discrepancy > 0 ? 'text-warning' : ''}`}>{shipmentCounts.discrepancy}</div>
+                  <div className={`kpi-trend ${shipmentCounts.discrepancy > 0 ? 'text-danger' : 'text-muted'}`}>
+                    {pendingCount > 0 ? <><i className="fa-solid fa-circle-exclamation"></i> {pendingCount} pending discrepancy reviews</> : 'No open shipment discrepancy'}
+                  </div>
+                </button>
+              </div>
+
+              <div className="manager-insight-grid mt-4">
+                <div className="insight-card">
+                  <div className="insight-card-header">
+                    <div>
+                      <h2>Shipment Status Distribution</h2>
+                      <p>Shared bucket logic used by manager and vendor dashboards.</p>
+                    </div>
+                  </div>
+                  <div className="insight-chart-list">
+                    {shipmentChartSegments.map((segment) => {
+                      const percentage = shipmentCounts.total > 0
+                        ? Math.round((segment.value / shipmentCounts.total) * 100)
+                        : 0;
+
+                      return (
+                        <div key={segment.key} className="insight-chart-row">
+                          <div className="insight-chart-row-head">
+                            <span>{segment.label}</span>
+                            <strong>{segment.value}</strong>
+                          </div>
+                          <div className="insight-chart-track">
+                            <div style={{ width: `${percentage}%`, backgroundColor: segment.color }}></div>
+                          </div>
+                          <small>{percentage}% of total shipments</small>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
-                <div className="kpi-card border-info">
-                  <div className="kpi-header">
-                    <span className="kpi-title">Inbound Received</span>
-                    <i className="fa-solid fa-truck-ramp-box text-muted"></i>
+                <div className="insight-card">
+                  <div className="insight-card-header">
+                    <div>
+                      <h2>Discrepancy Breakdown</h2>
+                      <p>Operational view of verification outcomes.</p>
+                    </div>
                   </div>
-                  <div className="kpi-value">{summary.total_inbound_today} <span className="kpi-unit">today</span></div>
-                  <div className="kpi-trend text-muted">Total physical inbound today</div>
+                  <div className="breakdown-grid">
+                    <div>
+                      <span>Match</span>
+                      <strong>{discrepancyStatusCounts.match || 0}</strong>
+                    </div>
+                    <div>
+                      <span>Mismatch</span>
+                      <strong>{discrepancyStatusCounts.mismatch || 0}</strong>
+                    </div>
+                    <div>
+                      <span>Missing</span>
+                      <strong>{discrepancyStatusCounts.missing || 0}</strong>
+                    </div>
+                    <div>
+                      <span>Over</span>
+                      <strong>{discrepancyStatusCounts.over || 0}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="insight-card">
+                  <div className="insight-card-header">
+                    <div>
+                      <h2>Action Queue</h2>
+                      <p>What needs attention right now.</p>
+                    </div>
+                  </div>
+                  <div className="queue-signal-list">
+                    <div className="queue-signal-item">
+                      <span>Pending Review</span>
+                      <strong>{pendingCount}</strong>
+                    </div>
+                    <div className="queue-signal-item">
+                      <span>Awaiting Verification</span>
+                      <strong>{agingSla.awaiting_verification}</strong>
+                    </div>
+                    <div className="queue-signal-item">
+                      <span>Overdue Shipping</span>
+                      <strong>{agingSla.overdue_shipping}</strong>
+                    </div>
+                    <div className="queue-signal-item">
+                      <span>Queue Preview</span>
+                      <strong>{pendingReviewQueue.length}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="insight-card">
+                  <div className="insight-card-header">
+                    <div>
+                      <h2>Recent Shipment Activity</h2>
+                      <p>Newest outbound records reaching the manager dashboard.</p>
+                    </div>
+                  </div>
+                  {shipmentActivity.length > 0 ? (
+                    <div className="manager-activity-list">
+                      {shipmentActivity.map((activity) => (
+                        <div key={activity.shipmentId} className="manager-activity-item">
+                          <div>
+                            <strong>{activity.shipmentNumber}</strong>
+                            <span>{activity.origin}</span>
+                          </div>
+                          <div>
+                            <span>{activity.statusLabel}</span>
+                            <time>{formatDateTime(activity.timestamp)}</time>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="manager-activity-empty">No shipment activity available yet.</div>
+                  )}
+                </div>
+
+                <div className="insight-card">
+                  <div className="insight-card-header">
+                    <div>
+                      <h2>Vendor Performance Snapshot</h2>
+                      <p>Quick read of discrepancy rate by vendor.</p>
+                    </div>
+                    {secondaryLoading && <span className="status-badge status-pending">Syncing</span>}
+                  </div>
+                  {analyticsData.length > 0 ? (
+                    <div className="vendor-performance-mini-list">
+                      {analyticsData.slice(0, 3).map((item) => (
+                        <div key={item.vendor_id || item.vendor_name || item.vendor} className="vendor-performance-mini-item">
+                          <div>
+                            <strong>{item.vendor_name || item.vendor || `Vendor ${item.vendor_id || '-'}`}</strong>
+                            <span>{item.shipments_with_discrepancy ?? item.total_discrepancies ?? 0} discrepancy shipments</span>
+                          </div>
+                          <div>
+                            <strong>{formatRate(item.discrepancy_rate ?? item.rate)}</strong>
+                            <span>{item.total_shipments} total shipments</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="manager-activity-empty">
+                      {secondaryLoading ? 'Loading vendor performance...' : 'No vendor performance data available yet.'}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -537,14 +770,20 @@ const ManagerDashboard = () => {
                   <div className="tab-content active" id="tab-overview">
                     <div className="table-toolbar">
                       <div className="filter-group">
-                        <select className="form-control filter-select">
-                          <option>All Vendors</option>
+                        <select className="form-control filter-select" value={overviewVendorFilter} onChange={(e) => setOverviewVendorFilter(e.target.value)}>
+                          <option value="all">All Vendors</option>
+                          {vendorOptions.map((vendor) => (
+                            <option key={vendor} value={vendor}>{vendor}</option>
+                          ))}
                         </select>
-                        <select className="form-control filter-select">
-                          <option>All Statuses</option>
-                          <option>Verified</option>
-                          <option>Pending Scan</option>
-                          <option>Discrepancy</option>
+                        <select className="form-control filter-select" value={overviewStatusFilter} onChange={(e) => setOverviewStatusFilter(e.target.value)}>
+                          <option value="all">All Statuses</option>
+                          <option value="draft">Draft</option>
+                          <option value="submitted">Submitted</option>
+                          <option value="in_transit">In Transit</option>
+                          <option value="arrived">Arrived</option>
+                          <option value="verified">Verified</option>
+                          <option value="discrepancy">Has Discrepancy</option>
                         </select>
                       </div>
                     </div>
@@ -563,14 +802,14 @@ const ManagerDashboard = () => {
                         <tbody>
                           {dashboardLoading ? (
                             <tr><td colSpan="5" className="text-center" style={{ padding: '24px' }}><i className="fa-solid fa-spinner fa-spin"></i> Loading shipments...</td></tr>
-                          ) : shipments.map(shp => (
-                            <tr key={shp.ID_outbound} className={shp.status === 'discrepancy' ? 'highlight-row' : ''}>
+                          ) : overviewFilteredShipments.map(shp => (
+                            <tr key={shp.ID_outbound} className={shp.has_discrepancy ? 'highlight-row' : ''}>
                               <td className="font-medium">SHP-{shp.ID_outbound}</td>
                               <td>{shp.vendor?.nama_vendor || `Vendor ${shp.ID_vendor}`}</td>
                               <td>{getStatusBadge(shp.status)}</td>
                               <td className="text-muted">{formatDateTime(shp.created_at)}</td>
                               <td>
-                                {shp.status === 'discrepancy' ? (
+                                {shp.has_discrepancy ? (
                                   <button className="btn btn-sm btn-primary" onClick={() => setActiveTab('pending')}>Review</button>
                                 ) : (
                                   <button className="btn btn-sm btn-outline" onClick={() => handleViewShipmentDetails(shp)}>Details</button>
@@ -578,8 +817,8 @@ const ManagerDashboard = () => {
                               </td>
                             </tr>
                           ))}
-                          {!dashboardLoading && shipments.length === 0 && (
-                            <tr><td colSpan="5" className="text-center" style={{ padding: '20px' }}>No shipments found.</td></tr>
+                          {!dashboardLoading && overviewFilteredShipments.length === 0 && (
+                            <tr><td colSpan="5" className="text-center" style={{ padding: '20px' }}>No shipments found for the selected filters.</td></tr>
                           )}
                         </tbody>
                       </table>
@@ -755,15 +994,15 @@ const ManagerDashboard = () => {
               <div className="manager-section-grid">
                 <div className="section-summary-card">
                   <span>Total Shipments</span>
-                  <strong>{shipments.length}</strong>
+                  <strong>{shipmentCounts.total}</strong>
                 </div>
                 <div className="section-summary-card">
-                  <span>Pending Scan</span>
-                  <strong>{shipments.filter(shp => shp.status === 'submitted').length}</strong>
+                  <span>Shipping</span>
+                  <strong>{shipmentCounts.shipping}</strong>
                 </div>
                 <div className="section-summary-card">
-                  <span>Needs Attention</span>
-                  <strong>{shipments.filter(shp => shp.status === 'discrepancy').length}</strong>
+                  <span>Discrepancy</span>
+                  <strong>{shipmentCounts.discrepancy}</strong>
                 </div>
               </div>
               <div className="card data-card mt-4">
@@ -772,6 +1011,12 @@ const ManagerDashboard = () => {
                     <h2>Shipment Directory</h2>
                     <p>Use Details to inspect vendor, schedule, origin, and item quantities.</p>
                   </div>
+                  <select className="form-control filter-select" value={shipmentStatusFilter} onChange={(e) => setShipmentStatusFilter(e.target.value)}>
+                    <option value="total">All Shipments</option>
+                    <option value="shipping">Shipping</option>
+                    <option value="delivered">Delivered</option>
+                    <option value="discrepancy">Discrepancy</option>
+                  </select>
                 </div>
                 <div className="table-responsive">
                   <table className="data-table">
@@ -788,7 +1033,7 @@ const ManagerDashboard = () => {
                     <tbody>
                       {dashboardLoading ? (
                         <tr><td colSpan="6" className="text-center" style={{ padding: '32px' }}><i className="fa-solid fa-spinner fa-spin"></i> Loading shipments...</td></tr>
-                      ) : shipments.map(shp => (
+                      ) : filteredShipments.map(shp => (
                         <tr key={shp.ID_outbound}>
                           <td className="font-medium">{shp.no_pengiriman || `SHP-${shp.ID_outbound}`}</td>
                           <td>{shp.vendor?.nama_vendor || `Vendor ${shp.ID_vendor}`}</td>
@@ -798,8 +1043,8 @@ const ManagerDashboard = () => {
                           <td><button className="btn btn-sm btn-outline" onClick={() => handleViewShipmentDetails(shp)}>Details</button></td>
                         </tr>
                       ))}
-                      {!dashboardLoading && shipments.length === 0 && (
-                        <tr><td colSpan="6" className="text-center" style={{ padding: '32px' }}>No shipments found.</td></tr>
+                      {!dashboardLoading && filteredShipments.length === 0 && (
+                        <tr><td colSpan="6" className="text-center" style={{ padding: '32px' }}>No shipments found for this status.</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -819,15 +1064,15 @@ const ManagerDashboard = () => {
               <div className="manager-section-grid">
                 <div className="section-summary-card">
                   <span>Matched</span>
-                  <strong>{summary.discrepancy_by_status.match || 0}</strong>
+                  <strong>{discrepancyStatusCounts.match || 0}</strong>
                 </div>
                 <div className="section-summary-card">
                   <span>Mismatched</span>
-                  <strong>{summary.discrepancy_by_status.mismatch || 0}</strong>
+                  <strong>{discrepancyStatusCounts.mismatch || 0}</strong>
                 </div>
                 <div className="section-summary-card">
                   <span>Missing / Over</span>
-                  <strong>{(summary.discrepancy_by_status.missing || 0) + (summary.discrepancy_by_status.over || 0)}</strong>
+                  <strong>{(discrepancyStatusCounts.missing || 0) + (discrepancyStatusCounts.over || 0)}</strong>
                 </div>
               </div>
               <div className="verification-results-grid mt-4">
@@ -929,54 +1174,230 @@ const ManagerDashboard = () => {
               <div className="page-header">
                 <div>
                   <h1>Analytics & Vendor Performance</h1>
-                  <p className="subtitle">Track system accuracy and vendor reliability metrics.</p>
+                  <p className="subtitle">
+                    Operational analytics by dispatch date.{' '}
+                    {managerAnalytics?.generated_at && (
+                      <span className="text-muted">Generated {formatDateTime(managerAnalytics.generated_at)}</span>
+                    )}
+                  </p>
+                </div>
+                <div className="header-actions">
+                  <select
+                    className="form-control filter-select"
+                    value={analyticsVendorFilter}
+                    onChange={(e) => handleAnalyticsVendorFilter(e.target.value)}
+                    disabled={analyticsLoading}
+                  >
+                    <option value="all">All Vendors</option>
+                    {(managerAnalytics?.discrepancy_by_vendor || []).map((v) => (
+                      <option key={v.vendor_id} value={String(v.vendor_id)}>{v.vendor_name}</option>
+                    ))}
+                  </select>
+                  <button className="btn btn-outline" onClick={() => { setAnalyticsFetched(false); fetchManagerAnalytics(analyticsVendorFilter); }} disabled={analyticsLoading}>
+                    <i className="fa-solid fa-rotate"></i> Refresh
+                  </button>
                 </div>
               </div>
-              <div className="card data-card">
-                <div className="card-header" style={{ padding: '1.5rem', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)' }}>
-                  <h2 style={{ fontSize: '1.1rem' }}>Vendor Discrepancy Rates</h2>
+
+              {analyticsLoading && (
+                <div className="text-center" style={{ padding: '48px' }}>
+                  <i className="fa-solid fa-spinner fa-spin"></i> Loading analytics...
                 </div>
-                <div className="table-responsive" style={{ padding: '1rem' }}>
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Vendor Name</th>
-                        <th className="text-center">Total Shipments</th>
-                        <th className="text-center">Shipments w/ Discrepancy</th>
-                        <th>Error Rate</th>
-                        <th>Performance Label</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {secondaryLoading && analyticsData.length === 0 ? (
-                        <tr><td colSpan="5" className="text-center" style={{ padding: '20px' }}><i className="fa-solid fa-spinner fa-spin"></i> Loading analytics...</td></tr>
-                      ) : analyticsData.map((data, idx) => (
-                        <tr key={idx}>
-                          <td className="font-medium">{data.vendor}</td>
-                          <td className="text-center">{data.total_shipments}</td>
-                          <td className="text-center">{data.total_discrepancies}</td>
-                          <td>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                              <div style={{ width: '100px', height: '8px', backgroundColor: 'var(--bg-main)', borderRadius: '4px', overflow: 'hidden' }}>
-                                <div style={{ width: data.rate, height: '100%', backgroundColor: parseFloat(data.rate) > 10 ? 'var(--danger)' : 'var(--success)' }}></div>
-                              </div>
-                              <span className="font-bold">{data.rate}</span>
-                            </div>
-                          </td>
-                          <td>
-                            {parseFloat(data.rate) === 0 ? <span className="status-badge status-success">Excellent</span> : 
-                             parseFloat(data.rate) > 10 ? <span className="status-badge status-danger">Needs Review</span> :
-                             <span className="status-badge status-warning">Acceptable</span>}
-                          </td>
-                        </tr>
-                      ))}
-                      {!secondaryLoading && analyticsData.length === 0 && (
-                        <tr><td colSpan="5" className="text-center" style={{ padding: '20px' }}>No analytics data available yet.</td></tr>
-                      )}
-                    </tbody>
-                  </table>
+              )}
+
+              {analyticsError && !analyticsLoading && (
+                <div className="card data-card" style={{ padding: '2rem', textAlign: 'center', color: 'var(--danger)' }}>
+                  <i className="fa-solid fa-circle-exclamation"></i> {analyticsError}
+                  <div style={{ marginTop: '1rem' }}>
+                    <button className="btn btn-outline" onClick={() => fetchManagerAnalytics(analyticsVendorFilter)}>Retry</button>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {!analyticsLoading && !analyticsError && managerAnalytics && (() => {
+                const { schedule_risk, action_queue, audit_evidence_summary, discrepancy_by_part, discrepancy_by_vendor, trend_by_date } = managerAnalytics;
+                const partRows = buildDiscrepancyByPartRows(discrepancy_by_part);
+                const auditSummary = summarizeAuditEvidence(audit_evidence_summary);
+                const trendData = buildTrendChartData(trend_by_date);
+
+                return (
+                  <>
+                    {/* Signal Cards */}
+                    <div className="manager-section-grid">
+                      <div className="section-summary-card">
+                        <span>Dispatch Today</span>
+                        <strong>{schedule_risk.dispatch_today}</strong>
+                      </div>
+                      <div className="section-summary-card">
+                        <span>Arrival Today</span>
+                        <strong>{schedule_risk.arrival_today}</strong>
+                      </div>
+                      <div className="section-summary-card">
+                        <span>Overdue Shipping</span>
+                        <strong style={{ color: schedule_risk.overdue_shipping > 0 ? 'var(--danger)' : undefined }}>{schedule_risk.overdue_shipping}</strong>
+                      </div>
+                      <div className="section-summary-card">
+                        <span>Awaiting Verification</span>
+                        <strong>{schedule_risk.arrived_awaiting_verification}</strong>
+                      </div>
+                      <div className="section-summary-card">
+                        <span>Draft Pending Submit</span>
+                        <strong>{action_queue.draft_pending_submit}</strong>
+                      </div>
+                      <div className="section-summary-card">
+                        <span>QR Not Ready</span>
+                        <strong>{action_queue.submitted_qr_not_ready}</strong>
+                      </div>
+                      <div className="section-summary-card">
+                        <span>Pending Discrepancy Review</span>
+                        <strong style={{ color: action_queue.pending_discrepancy_review > 0 ? 'var(--danger)' : undefined }}>{action_queue.pending_discrepancy_review}</strong>
+                      </div>
+                    </div>
+
+                    {/* Trend Chart */}
+                    <div className="card data-card mt-4">
+                      <div className="card-header" style={{ padding: '1.5rem 1.5rem 0', borderBottom: 'none' }}>
+                        <h2 style={{ fontSize: '1.1rem' }}>Shipment Trend</h2>
+                        <p className="text-muted" style={{ fontSize: '0.85rem' }}>By dispatch date · latest 30 points</p>
+                      </div>
+                      <div style={{ padding: '1rem 1.5rem 1.5rem' }}>
+                        {trend_by_date.length > 0 ? (
+                          <AnalyticsTrendChart data={trendData} />
+                        ) : (
+                          <div className="manager-activity-empty">No trend data available yet.</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Discrepancy by Part */}
+                    <div className="card data-card mt-4">
+                      <div className="card-header" style={{ padding: '1.5rem', borderBottom: '1px solid var(--border-color)' }}>
+                        <h2 style={{ fontSize: '1.1rem' }}>Discrepancy by Part</h2>
+                      </div>
+                      <div className="table-responsive" style={{ padding: '1rem' }}>
+                        {partRows.length > 0 ? (
+                          <table className="data-table">
+                            <thead>
+                              <tr>
+                                <th>Part</th>
+                                <th className="text-center">Mismatch</th>
+                                <th className="text-center">Missing</th>
+                                <th className="text-center">Over</th>
+                                <th>Total</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {partRows.map((row) => {
+                                const maxTotal = partRows[0].total_non_match || 1;
+                                const barPct = Math.round((row.total_non_match / maxTotal) * 100);
+                                return (
+                                  <tr key={row.part_id}>
+                                    <td className="font-medium">{row.part_name}</td>
+                                    <td className="text-center">{row.mismatch}</td>
+                                    <td className="text-center">{row.missing}</td>
+                                    <td className="text-center">{row.over}</td>
+                                    <td>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <div style={{ width: '80px', height: '8px', backgroundColor: 'var(--bg-main)', borderRadius: '4px', overflow: 'hidden' }}>
+                                          <div style={{ width: `${barPct}%`, height: '100%', backgroundColor: 'var(--danger)' }}></div>
+                                        </div>
+                                        <strong>{row.total_non_match}</strong>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        ) : (
+                          <div className="manager-activity-empty">No part discrepancy data available.</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Vendor Performance */}
+                    <div className="card data-card mt-4">
+                      <div className="card-header" style={{ padding: '1.5rem', borderBottom: '1px solid var(--border-color)' }}>
+                        <h2 style={{ fontSize: '1.1rem' }}>Vendor Performance</h2>
+                      </div>
+                      <div className="table-responsive" style={{ padding: '1rem' }}>
+                        {discrepancy_by_vendor.length > 0 ? (
+                          <table className="data-table">
+                            <thead>
+                              <tr>
+                                <th>Vendor</th>
+                                <th className="text-center">Total Shipments</th>
+                                <th className="text-center">w/ Discrepancy</th>
+                                <th>Rate</th>
+                                <th>Label</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {discrepancy_by_vendor.map((v) => {
+                                const pct = (v.discrepancy_rate || 0) * 100;
+                                return (
+                                  <tr key={v.vendor_id}>
+                                    <td className="font-medium">{v.vendor_name}</td>
+                                    <td className="text-center">{v.total_shipments}</td>
+                                    <td className="text-center">{v.shipments_with_discrepancy}</td>
+                                    <td>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <div style={{ width: '100px', height: '8px', backgroundColor: 'var(--bg-main)', borderRadius: '4px', overflow: 'hidden' }}>
+                                          <div style={{ width: `${Math.min(pct, 100)}%`, height: '100%', backgroundColor: pct > 10 ? 'var(--danger)' : 'var(--success)' }}></div>
+                                        </div>
+                                        <span className="font-bold">{formatRate(v.discrepancy_rate)}</span>
+                                      </div>
+                                    </td>
+                                    <td>
+                                      {pct === 0
+                                        ? <span className="status-badge status-success">Excellent</span>
+                                        : pct > 10
+                                          ? <span className="status-badge status-danger">Needs Review</span>
+                                          : <span className="status-badge status-warning">Acceptable</span>}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        ) : (
+                          <div className="manager-activity-empty">No vendor performance data available.</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Audit Evidence */}
+                    <div className="card data-card mt-4">
+                      <div className="card-header" style={{ padding: '1.5rem', borderBottom: '1px solid var(--border-color)' }}>
+                        <h2 style={{ fontSize: '1.1rem' }}>Audit Evidence Summary</h2>
+                      </div>
+                      <div style={{ padding: '1.5rem' }}>
+                        <div className="manager-section-grid">
+                          <div className="section-summary-card">
+                            <span>With Photo <span className="status-badge status-pending" style={{ fontSize: '0.7rem' }}>partial</span></span>
+                            <strong>{auditSummary.withPhoto} <span className="text-muted" style={{ fontSize: '0.85rem' }}>({auditSummary.photoPct}%)</span></strong>
+                          </div>
+                          <div className="section-summary-card">
+                            <span>Without Photo</span>
+                            <strong style={{ color: auditSummary.withoutPhoto > 0 ? 'var(--warning)' : undefined }}>{auditSummary.withoutPhoto}</strong>
+                          </div>
+                          <div className="section-summary-card">
+                            <span>With Location <span className="status-badge status-pending" style={{ fontSize: '0.7rem' }}>partial</span></span>
+                            <strong>{auditSummary.withLocation} <span className="text-muted" style={{ fontSize: '0.85rem' }}>({auditSummary.locationPct}%)</span></strong>
+                          </div>
+                          <div className="section-summary-card">
+                            <span>With Timestamp</span>
+                            <strong>{auditSummary.withTimestamp}</strong>
+                          </div>
+                        </div>
+                        <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '0.75rem' }}>
+                          Photo = <code>tabel_foto</code> records only. Location = warehouse context, not GPS coordinates.
+                        </p>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
             </>
           )}
 
@@ -1264,8 +1685,8 @@ const ManagerDashboard = () => {
             </div>
             <div className="modal-footer">
               <button className="btn btn-outline" onClick={() => setShipmentModalData(null)}>Close</button>
-              {shipmentModalData.status === 'discrepancy' && (
-                <button className="btn btn-primary" onClick={() => { setShipmentModalData(null); setActiveTab('pending'); }}>
+              {shipmentModalData.has_discrepancy && (
+                <button className="btn btn-primary" onClick={() => { setShipmentModalData(null); openDiscrepancyReview(); }}>
                   Review Discrepancy
                 </button>
               )}
