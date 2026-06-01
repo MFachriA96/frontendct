@@ -1,9 +1,47 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import {
+  ArcElement,
+  Chart as ChartJS,
+  Legend,
+  Tooltip,
+} from 'chart.js';
+import { Doughnut } from 'react-chartjs-2';
 import { QRCodeSVG } from 'qrcode.react';
 import { API_BASE_URL } from '../config/api';
+import {
+  buildRecentShipmentActivity,
+  buildShipmentChartSegments,
+  buildVendorSummaryCards,
+  buildQrDownloadLabel,
+  canAccessQrForShipment,
+  filterShipmentsByStatusGroup,
+  getQrProductName,
+  getUpcomingShipmentSchedule,
+  getShipmentStatusCounts,
+  normalizeStatus,
+  normalizeQrTokens,
+  validateOutboundSchedule,
+  normalizeAnalyticsResponse,
+  buildTrendChartData,
+  buildDiscrepancyByPartRows,
+  summarizeAuditEvidence,
+} from '../utils/dashboardLogic';
+import AnalyticsTrendChart from '../components/AnalyticsTrendChart';
 import './VendorDashboard.css';
+
+const vendorStatusText = {
+  draft: 'Belum Dikirim',
+  submitted: 'Siap Diproses',
+  in_transit: 'Sedang Dikirim',
+  arrived: 'Sudah Tiba',
+  verified: 'Sudah Dicek',
+  delivered: 'Selesai',
+  discrepancy: 'Perlu Tindak Lanjut',
+};
+
+ChartJS.register(ArcElement, Legend, Tooltip);
 
 const VendorDashboard = () => {
   const approvedProductNames = [
@@ -20,13 +58,20 @@ const VendorDashboard = () => {
   ];
 
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [shipmentStatusFilter, setShipmentStatusFilter] = useState('total');
   const [shipments, setShipments] = useState([]);
+  const [vendorOverview, setVendorOverview] = useState(null);
   const [authChecking, setAuthChecking] = useState(true);
   const [shipmentsLoading, setShipmentsLoading] = useState(false);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [vendorAnalytics, setVendorAnalytics] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState(null);
+  const [analyticsFetched, setAnalyticsFetched] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [productOptions, setProductOptions] = useState([]);
   const [productsLoading, setProductsLoading] = useState(false);
+  const [formErrors, setFormErrors] = useState({});
   const [user, setUser] = useState(() => {
     const userData = localStorage.getItem('user');
     return userData ? JSON.parse(userData) : null;
@@ -115,17 +160,17 @@ const VendorDashboard = () => {
     }
   };
 
-  const fetchShipments = async () => {
+  const fetchShipments = async (session) => {
     try {
       setShipmentsLoading(true);
-      const session = await ensureVendorSession({ silent: true });
-      if (!session) {
+      const activeSession = session || await ensureVendorSession({ silent: true });
+      if (!activeSession) {
         setShipments([]);
         return;
       }
 
       const response = await axios.get(`${API_BASE_URL}/api/outbound`, {
-        headers: session.headers
+        headers: activeSession.headers
       });
       const resData = response.data.data;
       const shipmentsArray = Array.isArray(resData) ? resData : (resData?.data || []);
@@ -137,18 +182,36 @@ const VendorDashboard = () => {
     }
   };
 
-  const fetchNotifications = async () => {
+  const fetchVendorOverview = async (session) => {
+    try {
+      const activeSession = session || await ensureVendorSession({ silent: true });
+      if (!activeSession) {
+        setVendorOverview(null);
+        return;
+      }
+
+      const response = await axios.get(`${API_BASE_URL}/api/dashboard/vendor-overview`, {
+        headers: activeSession.headers,
+      });
+      setVendorOverview(response.data?.data || null);
+    } catch (error) {
+      console.error('Error fetching vendor overview:', error);
+      setVendorOverview(null);
+    }
+  };
+
+  const fetchNotifications = async (session) => {
     try {
       setNotificationsLoading(true);
-      const session = await ensureVendorSession({ silent: true });
-      if (!session) {
+      const activeSession = session || await ensureVendorSession({ silent: true });
+      if (!activeSession) {
         setNotifications([]);
         setUnreadCount(0);
         return;
       }
 
       const response = await axios.get(`${API_BASE_URL}/api/notifikasi`, {
-        headers: session.headers
+        headers: activeSession.headers
       });
       // Handle Laravel pagination wrapper
       const resData = response.data.data;
@@ -156,7 +219,7 @@ const VendorDashboard = () => {
       setNotifications(notifsArray);
       
       const unreadRes = await axios.get(`${API_BASE_URL}/api/notifikasi/unread-count`, {
-        headers: session.headers
+        headers: activeSession.headers
       });
       setUnreadCount(unreadRes.data.data.unread_count || 0);
     } catch (error) {
@@ -265,15 +328,42 @@ const VendorDashboard = () => {
       }
 
       await Promise.all([
-        fetchShipments(),
-        fetchNotifications(),
-        fetchProductOptions(session)
+        fetchShipments(session),
+        fetchVendorOverview(session),
       ]);
       setAuthChecking(false);
+      void fetchNotifications(session);
+      void fetchProductOptions(session);
     };
 
     initializeDashboard();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const fetchVendorAnalytics = async () => {
+    const token = localStorage.getItem('token');
+    setAnalyticsLoading(true);
+    setAnalyticsError(null);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/dashboard/vendor-analytics`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setVendorAnalytics(normalizeAnalyticsResponse(res.data));
+      setAnalyticsFetched(true);
+    } catch (err) {
+      setAnalyticsError(err.response?.data?.message || err.message || 'Failed to load analytics.');
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'analytics' && !analyticsFetched) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      fetchVendorAnalytics();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   const handleLogout = async () => {
     try {
@@ -330,7 +420,35 @@ const VendorDashboard = () => {
     setItems(newItems);
   };
 
+  const getScheduleFieldErrors = () => {
+    const nextErrors = {};
+
+    if (!waktuKirim) {
+      nextErrors.waktuKirim = 'Dispatch Date is required.';
+    }
+
+    if (!estimasiTiba) {
+      nextErrors.estimasiTiba = 'Expected Arrival is required.';
+    }
+
+    if (waktuKirim && estimasiTiba) {
+      const scheduleValidation = validateOutboundSchedule(waktuKirim, estimasiTiba);
+      if (!scheduleValidation.valid) {
+        nextErrors.estimasiTiba = scheduleValidation.message;
+      }
+    }
+
+    return nextErrors;
+  };
+
   const handleSubmitShipment = async (isSubmit) => {
+    const scheduleErrors = getScheduleFieldErrors();
+    if (Object.keys(scheduleErrors).length > 0) {
+      setFormErrors(scheduleErrors);
+      return;
+    }
+
+    setFormErrors({});
     setSubmitLoading(true);
     try {
       const session = await ensureVendorSession();
@@ -363,7 +481,7 @@ const VendorDashboard = () => {
 
       const payload = {
         waktu_kirim: waktuKirim + ' 00:00:00', // API might expect datetime
-        estimasi_tiba: estimasiTiba ? estimasiTiba + ' 00:00:00' : null,
+        estimasi_tiba: estimasiTiba + ' 00:00:00',
         lokasi_asal: lokasiAsal,
         details: details
       };
@@ -383,7 +501,7 @@ const VendorDashboard = () => {
         const qrRes = await axios.get(`${API_BASE_URL}/api/outbound/${outboundId}/qr-token`, {
           headers: session.headers
         });
-        const fetchedTokens = qrRes.data.data.qr_tokens || [];
+        const fetchedTokens = normalizeQrTokens(qrRes.data);
         setQrTokens(fetchedTokens);
         setQrCache(prev => ({ ...prev, [outboundId]: fetchedTokens }));
         setSelectedShipmentId(outboundId);
@@ -396,9 +514,13 @@ const VendorDashboard = () => {
       setLokasiAsal('');
       setWaktuKirim('');
       setEstimasiTiba('');
+      setFormErrors({});
       setItems([{ ID_barang: '', nama_barang: '', product_mode: 'select', quantity_outbound: 100, quantity_per_box: 10 }]);
       setActiveTab('shipments');
-      fetchShipments();
+      await Promise.all([
+        fetchShipments(session),
+        fetchVendorOverview(session),
+      ]);
 
     } catch (error) {
       console.error(error);
@@ -431,7 +553,7 @@ const VendorDashboard = () => {
       const qrRes = await axios.get(`${API_BASE_URL}/api/outbound/${id}/qr-token`, {
         headers: session.headers
       });
-      const fetchedTokens = qrRes.data.data.qr_tokens || [];
+      const fetchedTokens = normalizeQrTokens(qrRes.data);
       setQrTokens(fetchedTokens);
       setQrCache(prev => ({ ...prev, [id]: fetchedTokens }));
     } catch (error) {
@@ -491,15 +613,27 @@ const VendorDashboard = () => {
 
     image.onload = () => {
       const padding = 24;
-      const size = Math.max(image.width || 150, image.height || 150);
+      const qrSize = 180;
+      const label = buildQrDownloadLabel(token);
+      const labelLines = label.split(' | ');
       const canvas = document.createElement('canvas');
-      canvas.width = size + padding * 2;
-      canvas.height = size + padding * 2;
+      canvas.width = qrSize + padding * 2;
+      canvas.height = qrSize + padding * 2 + 72;
 
       const context = canvas.getContext('2d');
       context.fillStyle = '#ffffff';
       context.fillRect(0, 0, canvas.width, canvas.height);
-      context.drawImage(image, padding, padding, size, size);
+      context.drawImage(image, padding, padding, qrSize, qrSize);
+      context.fillStyle = '#0f172a';
+      context.textAlign = 'center';
+      context.textBaseline = 'top';
+      context.font = '700 14px Arial, sans-serif';
+      context.fillText(labelLines[0], canvas.width / 2, padding + qrSize + 12, canvas.width - padding * 2);
+      context.font = '12px Arial, sans-serif';
+      context.fillStyle = '#475569';
+      context.fillText(labelLines[1], canvas.width / 2, padding + qrSize + 32, canvas.width - padding * 2);
+      context.font = '11px "Courier New", monospace';
+      context.fillText(labelLines[2], canvas.width / 2, padding + qrSize + 50, canvas.width - padding * 2);
 
       canvas.toBlob((blob) => {
         URL.revokeObjectURL(svgUrl);
@@ -628,19 +762,118 @@ const VendorDashboard = () => {
 
   const getStatusBadge = (status) => {
     switch(status) {
-      case 'draft': return <span className="status-badge status-draft"><i className="fa-solid fa-pen"></i> Draft</span>;
-      case 'submitted': return <span className="status-badge status-submitted"><i className="fa-solid fa-paper-plane"></i> Submitted</span>;
-      case 'arrived': return <span className="status-badge status-delivered"><i className="fa-solid fa-check"></i> Arrived</span>;
-      case 'discrepancy': return <span className="status-badge status-discrepancy"><i className="fa-solid fa-triangle-exclamation"></i> Discrepancy</span>;
-      default: return <span className="status-badge status-draft">{status}</span>;
+      case 'draft': return <span className="status-badge status-draft"><i className="fa-solid fa-pen"></i> Masih Disiapkan</span>;
+      case 'submitted': return <span className="status-badge status-submitted"><i className="fa-solid fa-paper-plane"></i> Siap Dikirim</span>;
+      case 'in_transit': return <span className="status-badge status-submitted"><i className="fa-solid fa-truck-fast"></i> Sedang Dikirim</span>;
+      case 'arrived': return <span className="status-badge status-delivered"><i className="fa-solid fa-check"></i> Sudah Tiba</span>;
+      case 'verified': return <span className="status-badge status-delivered"><i className="fa-solid fa-check-double"></i> Sudah Diverifikasi</span>;
+      case 'delivered': return <span className="status-badge status-delivered"><i className="fa-solid fa-box-open"></i> Selesai</span>;
+      case 'discrepancy': return <span className="status-badge status-discrepancy"><i className="fa-solid fa-triangle-exclamation"></i> Perlu Klarifikasi</span>;
+      default: return <span className="status-badge status-draft">{String(status || 'Unknown').replace(/_/g, ' ')}</span>;
     }
   };
 
+  const openShipmentFilter = (filter) => {
+    setShipmentStatusFilter(filter);
+    setActiveTab('shipments');
+  };
+
   // Stats
-  const totalShipments = shipments.length;
-  const draftShipments = shipments.filter(s => s.status === 'draft').length;
-  const deliveredShipments = shipments.filter(s => s.status === 'arrived').length;
-  const discrepancyShipments = shipments.filter(s => s.status === 'discrepancy').length;
+  const shipmentCounts = getShipmentStatusCounts(shipments);
+  const overviewCounts = vendorOverview?.shipment_status_distribution || shipmentCounts;
+  const filteredShipments = filterShipmentsByStatusGroup(shipments, shipmentStatusFilter);
+  const vendorSummaryCards = buildVendorSummaryCards(overviewCounts);
+  const shipmentChartSegments = buildShipmentChartSegments(overviewCounts);
+  const shipmentActivity = Array.isArray(vendorOverview?.recent_activity) && vendorOverview.recent_activity.length > 0
+    ? vendorOverview.recent_activity
+    : buildRecentShipmentActivity(shipments, 5);
+  const upcomingShipmentSchedule = getUpcomingShipmentSchedule(shipments, 4);
+  const secondaryDashboardLoading = notificationsLoading || productsLoading;
+  const qrReadiness = vendorOverview?.qr_readiness || {
+    shipments_ready: shipments.filter((shipment) => shipment.qr_ready).length,
+    shipments_not_ready: shipments.filter((shipment) => !shipment.qr_ready && normalizeStatus(shipment.status) !== 'draft').length,
+    total_qr: shipments.reduce((total, shipment) => total + Number(shipment.total_qr || 0), 0),
+    ready_qr: shipments.reduce((total, shipment) => total + Number(shipment.ready_qr || 0), 0),
+  };
+  const discrepancyAlert = vendorOverview?.discrepancy_alert || {
+    total_non_match: shipments.filter((shipment) => shipment.has_discrepancy).length,
+    pending_review: 0,
+    by_status: {
+      match: 0,
+      mismatch: 0,
+      missing: 0,
+      over: 0,
+    },
+  };
+  const vendorStatusChartData = shipmentChartSegments
+    .filter((segment) => segment.value > 0)
+    .map((segment) => ({
+      ...segment,
+      name: vendorSummaryCards.find((card) => card.key === segment.key)?.label || segment.label,
+    }));
+  const vendorStatusChart = {
+    labels: vendorStatusChartData.map((segment) => segment.name),
+    datasets: [
+      {
+        data: vendorStatusChartData.map((segment) => segment.value),
+        backgroundColor: vendorStatusChartData.map((segment) => segment.color),
+        borderWidth: 0,
+      },
+    ],
+  };
+  const vendorStatusChartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    cutout: '62%',
+    plugins: {
+      legend: {
+        position: 'bottom',
+        labels: {
+          usePointStyle: true,
+          padding: 16,
+        },
+      },
+      tooltip: {
+        callbacks: {
+          label: (context) => `${context.label}: ${context.raw} shipment`,
+        },
+      },
+    },
+  };
+  const recentActivityItems = shipmentActivity.map((activity) => ({
+    shipmentNumber: activity.shipmentNumber || activity.no_pengiriman || `SHP-${activity.ID_outbound || activity.shipmentId || '-'}`,
+    statusLabel: vendorStatusText[normalizeStatus(activity.status)] || activity.statusLabel || String(activity.status || 'Aktivitas terbaru'),
+    timeLabel: formatDateTime(activity.timestamp || activity.updated_at || activity.created_at || activity.waktu_kirim || activity.estimasi_tiba),
+    origin: activity.origin || activity.lokasi_asal || '-',
+  }));
+  const qrCompletionRate = qrReadiness.total_qr > 0
+    ? Math.round((Number(qrReadiness.ready_qr || 0) / Number(qrReadiness.total_qr || 1)) * 100)
+    : 0;
+  const getScheduleSignal = (shipment) => {
+    const now = new Date();
+    const todayLabel = now.toDateString();
+    const dispatchDate = shipment.dispatchAt ? new Date(shipment.dispatchAt) : null;
+    const arrivalDate = shipment.expectedArrivalAt ? new Date(shipment.expectedArrivalAt) : null;
+    const status = normalizeStatus(shipment.status);
+
+    if (dispatchDate && dispatchDate.toDateString() === todayLabel) {
+      return { label: 'Berangkat Hari Ini', tone: 'status-submitted' };
+    }
+
+    if (arrivalDate && arrivalDate.toDateString() === todayLabel) {
+      return { label: 'Tiba Hari Ini', tone: 'status-delivered' };
+    }
+
+    if (arrivalDate && arrivalDate < now && (status === 'submitted' || status === 'in_transit')) {
+      return { label: 'Melewati Estimasi Tiba', tone: 'status-discrepancy' };
+    }
+
+    if (status === 'arrived') {
+      return { label: 'Menunggu Verifikasi Epson', tone: 'status-draft' };
+    }
+
+    return { label: vendorStatusText[status] || 'Dipantau', tone: 'status-draft' };
+  };
 
   if (authChecking) {
     return (
@@ -677,6 +910,9 @@ const VendorDashboard = () => {
           <div className={`menu-item ${activeTab === 'notifications' ? 'active' : ''}`} onClick={() => setActiveTab('notifications')}>
             <i className="fa-regular fa-bell"></i> Notifications
           </div>
+          <div className={`menu-item ${activeTab === 'analytics' ? 'active' : ''}`} onClick={() => setActiveTab('analytics')}>
+            <i className="fa-solid fa-chart-line"></i> Analytics
+          </div>
           <div className={`menu-item ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
             <i className="fa-solid fa-gear"></i> Settings
           </div>
@@ -699,6 +935,7 @@ const VendorDashboard = () => {
             {activeTab === 'shipments' && 'Outbound Shipments'}
             {activeTab === 'create-shipment' && 'Create Shipment'}
             {activeTab === 'notifications' && 'Notifications'}
+            {activeTab === 'analytics' && 'Analytics'}
             {activeTab === 'settings' && 'Settings'}
           </h1>
           
@@ -726,39 +963,160 @@ const VendorDashboard = () => {
           {activeTab === 'dashboard' && (
             <div className="page-section active">
               <div className="stats-grid">
-                <div className="stat-card">
-                  <div className="stat-icon icon-blue"><i className="fa-solid fa-box-open"></i></div>
-                  <div className="stat-info">
-                    <h3>Total Shipments</h3>
-                    <div className="value">{totalShipments}</div>
+                {vendorSummaryCards.map((card) => (
+                  <button key={card.key} type="button" className="stat-card stat-card-action stat-card-verbose" onClick={() => openShipmentFilter(card.key)}>
+                    <div className={`stat-icon icon-${card.tone}`}><i className={`fa-solid ${
+                      card.key === 'total'
+                        ? 'fa-box-open'
+                        : card.key === 'shipping'
+                          ? 'fa-truck-fast'
+                          : card.key === 'delivered'
+                            ? 'fa-check-double'
+                            : 'fa-triangle-exclamation'
+                    }`}></i></div>
+                    <div className="stat-info">
+                      <h3>{card.label}</h3>
+                      <div className="value">{card.value}</div>
+                      <p>{card.description}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              <div className="overview-grid">
+                <div className="card overview-card">
+                  <div className="card-header">
+                    <h2 className="card-title">Komposisi Status Pengiriman</h2>
+                    <span className="status-badge status-submitted">{overviewCounts.total} shipment</span>
+                  </div>
+                  <div className="overview-card-body">
+                    {vendorStatusChartData.length > 0 ? (
+                      <div className="vendor-chart-block">
+                        <div className="chart-copy">
+                          <strong>Komposisi pengiriman Anda saat ini.</strong>
+                          <p>Lihat berapa yang masih diproses, sudah diterima Epson, dan mana yang masih perlu perhatian.</p>
+                        </div>
+                        <div className="vendor-chart-frame">
+                          <Doughnut data={vendorStatusChart} options={vendorStatusChartOptions} />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="overview-empty-state">Belum ada data shipment untuk ditampilkan di chart.</div>
+                    )}
                   </div>
                 </div>
-                <div className="stat-card">
-                  <div className="stat-icon icon-yellow"><i className="fa-solid fa-file-pen"></i></div>
-                  <div className="stat-info">
-                    <h3>Draft / Pending</h3>
-                    <div className="value">{draftShipments}</div>
+
+                <div className="card overview-card">
+                  <div className="card-header">
+                    <h2 className="card-title">Jadwal Pengiriman Terdekat</h2>
+                    <button className="btn btn-outline" onClick={() => setActiveTab('create-shipment')}>Buat Shipment</button>
+                  </div>
+                  <div className="overview-card-body">
+                    {upcomingShipmentSchedule.length > 0 ? (
+                      <div className="shipment-schedule-list">
+                        {upcomingShipmentSchedule.map((shipment) => (
+                          <div key={shipment.shipmentId} className="shipment-schedule-item">
+                            <div>
+                              <strong>{shipment.shipmentNumber}</strong>
+                              <span>{shipment.origin}</span>
+                            </div>
+                            <div>
+                              <span>Jadwal Kirim</span>
+                              <strong>{formatDateTime(shipment.dispatchAt)}</strong>
+                            </div>
+                            <div>
+                              <span>Perkiraan Tiba</span>
+                              <strong>{formatDateTime(shipment.expectedArrivalAt)}</strong>
+                            </div>
+                            <div>
+                              <span>Prioritas</span>
+                              <strong className={`status-badge ${getScheduleSignal(shipment).tone}`}>{getScheduleSignal(shipment).label}</strong>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="overview-empty-state">
+                        Belum ada jadwal pengiriman yang tercatat.
+                      </div>
+                    )}
                   </div>
                 </div>
-                <div className="stat-card">
-                  <div className="stat-icon icon-green"><i className="fa-solid fa-check-double"></i></div>
-                  <div className="stat-info">
-                    <h3>Successfully Delivered</h3>
-                    <div className="value">{deliveredShipments}</div>
+              </div>
+
+              <div className="overview-grid">
+                <div className="card overview-card">
+                  <div className="card-header">
+                    <h2 className="card-title">Pembaruan Pengiriman Terbaru</h2>
+                    <button className="btn btn-outline" onClick={() => setActiveTab('shipments')}>Lihat Semua</button>
+                  </div>
+                  <div className="overview-card-body">
+                    {shipmentsLoading ? (
+                      <div className="overview-empty-state">Memuat pembaruan shipment terbaru...</div>
+                    ) : recentActivityItems.length > 0 ? (
+                      <div className="activity-caption-list">
+                        {recentActivityItems.map((activity) => (
+                          <div key={`${activity.shipmentNumber}-${activity.timeLabel}`} className="activity-caption-item">
+                            <strong>{activity.shipmentNumber}</strong>
+                            <span>{activity.statusLabel}</span>
+                            <small>{activity.origin}</small>
+                            <small>{activity.timeLabel}</small>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="overview-empty-state">Belum ada pembaruan shipment terbaru.</div>
+                    )}
                   </div>
                 </div>
-                <div className="stat-card">
-                  <div className="stat-icon icon-red"><i className="fa-solid fa-triangle-exclamation"></i></div>
-                  <div className="stat-info">
-                    <h3>Discrepancies Open</h3>
-                    <div className="value">{discrepancyShipments}</div>
+
+                <div className="card overview-card">
+                  <div className="card-header">
+                    <h2 className="card-title">Kontrol Dokumen & Tindak Lanjut</h2>
+                    {secondaryDashboardLoading && <span className="status-badge status-draft">Sinkronisasi</span>}
+                  </div>
+                  <div className="overview-card-body">
+                    <div className="workflow-signal-list">
+                      <div className="workflow-signal-item">
+                        <span>Shipment QR Siap</span>
+                        <strong>{qrReadiness.shipments_ready}</strong>
+                      </div>
+                      <div className="workflow-signal-item">
+                        <span>QR Belum Lengkap</span>
+                        <strong>{qrReadiness.shipments_not_ready}</strong>
+                      </div>
+                      <div className="workflow-signal-item">
+                        <span>Kesiapan QR</span>
+                        <strong>{qrCompletionRate}%</strong>
+                      </div>
+                      <div className="workflow-signal-item">
+                        <span>Perlu Review Selisih</span>
+                        <strong>{discrepancyAlert.pending_review}</strong>
+                      </div>
+                      <div className="workflow-signal-item">
+                        <span>Total Non-Match</span>
+                        <strong>{discrepancyAlert.total_non_match}</strong>
+                      </div>
+                      <div className="workflow-signal-item">
+                        <span>Notifikasi Belum Dibaca</span>
+                        <strong>{notificationsLoading ? '...' : unreadCount}</strong>
+                      </div>
+                      <div className="workflow-signal-item">
+                        <span>Shipment Belum Dikirim</span>
+                        <strong>{overviewCounts.draft}</strong>
+                      </div>
+                      <div className="workflow-signal-item">
+                        <span>Produk Siap Dipilih</span>
+                        <strong>{productsLoading ? '...' : productOptions.length}</strong>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
 
               <div className="card">
                 <div className="card-header">
-                  <h2 className="card-title">Recent Outbound Activity</h2>
+                    <h2 className="card-title">Outbound Terbaru</h2>
                   <button className="btn btn-outline" onClick={() => setActiveTab('shipments')}>View All</button>
                 </div>
                 <table>
@@ -783,7 +1141,7 @@ const VendorDashboard = () => {
                         <td>{ship.lokasi_asal}</td>
                         <td>{getStatusBadge(ship.status)}</td>
                         <td>
-                          {ship.status === 'submitted' && (
+                          {canAccessQrForShipment(ship) && (
                             <button className="btn btn-primary" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => handleViewQR(ship.ID_outbound)}>View QR</button>
                           )}
                         </td>
@@ -806,11 +1164,12 @@ const VendorDashboard = () => {
               <div className="card">
                 <div className="card-header" style={{ display: 'flex', gap: '16px' }}>
                   <input type="text" className="form-control" placeholder="Search by ID or Destination..." style={{ maxWidth: '300px' }} />
-                  <select className="form-control" style={{ maxWidth: '200px' }}>
-                    <option>All Status</option>
-                    <option>Draft</option>
-                    <option>Submitted</option>
-                    <option>Delivered</option>
+                  <select className="form-control" style={{ maxWidth: '200px' }} value={shipmentStatusFilter} onChange={(e) => setShipmentStatusFilter(e.target.value)}>
+                    <option value="total">All Status</option>
+                    <option value="draft">Belum Dikirim</option>
+                    <option value="shipping">Sedang Dikirim</option>
+                    <option value="delivered">Sudah Diterima</option>
+                    <option value="discrepancy">Perlu Tindak Lanjut</option>
                   </select>
                   <div style={{ flex: 1 }}></div>
                   <button className="btn btn-primary" onClick={() => setActiveTab('create-shipment')}><i className="fa-solid fa-plus"></i> New Shipment</button>
@@ -830,7 +1189,7 @@ const VendorDashboard = () => {
                       <tr>
                         <td colSpan="5" style={{ textAlign: 'center' }}>Loading shipments...</td>
                       </tr>
-                    ) : shipments.map(ship => (
+                    ) : filteredShipments.map(ship => (
                       <tr key={ship.ID_outbound}>
                         <td><strong>{ship.ID_outbound}</strong></td>
                         <td>{formatDateTime(ship.waktu_kirim)}</td>
@@ -848,7 +1207,10 @@ const VendorDashboard = () => {
                                 await axios.post(`${API_BASE_URL}/api/outbound/${ship.ID_outbound}/submit`, {}, {
                                   headers: session.headers
                                 });
-                                fetchShipments();
+                                await Promise.all([
+                                  fetchShipments(session),
+                                  fetchVendorOverview(session),
+                                ]);
                                 handleViewQR(ship.ID_outbound);
                               } catch (error) {
                                 console.error('Error submitting shipment:', error);
@@ -856,16 +1218,16 @@ const VendorDashboard = () => {
                               }
                             }}>Submit</button>
                           )}
-                          {ship.status === 'submitted' && (
+                          {canAccessQrForShipment(ship) && (
                             <button className="btn btn-primary" style={{ padding: '6px 12px', marginRight: '8px' }} onClick={() => handleViewQR(ship.ID_outbound)}>QR Code</button>
                           )}
                           <button className="btn btn-outline" style={{ padding: '6px 12px' }} onClick={() => handleViewShipmentDetails(ship)}>Details</button>
                         </td>
                       </tr>
                     ))}
-                    {!shipmentsLoading && shipments.length === 0 && (
+                    {!shipmentsLoading && filteredShipments.length === 0 && (
                       <tr>
-                        <td colSpan="5" style={{ textAlign: 'center' }}>No shipments found.</td>
+                        <td colSpan="5" style={{ textAlign: 'center' }}>No shipments found for this status.</td>
                       </tr>
                     )}
                   </tbody>
@@ -890,11 +1252,32 @@ const VendorDashboard = () => {
                   </div>
                   <div className="form-group">
                     <label className="form-label">Dispatch Date (Waktu Kirim)</label>
-                    <input type="date" className="form-control" value={waktuKirim} onChange={(e) => setWaktuKirim(e.target.value)} />
+                    <input
+                      type="date"
+                      className={`form-control ${formErrors.waktuKirim ? 'form-control-error' : ''}`}
+                      value={waktuKirim}
+                      onChange={(e) => {
+                        setWaktuKirim(e.target.value);
+                        setFormErrors((prev) => ({ ...prev, waktuKirim: '', estimasiTiba: '' }));
+                      }}
+                      required
+                    />
+                    {formErrors.waktuKirim && <div className="form-error-text">{formErrors.waktuKirim}</div>}
                   </div>
                   <div className="form-group">
                     <label className="form-label">Expected Arrival (Estimasi Tiba)</label>
-                    <input type="date" className="form-control" value={estimasiTiba} onChange={(e) => setEstimasiTiba(e.target.value)} />
+                    <input
+                      type="date"
+                      className={`form-control ${formErrors.estimasiTiba ? 'form-control-error' : ''}`}
+                      value={estimasiTiba}
+                      min={waktuKirim || undefined}
+                      onChange={(e) => {
+                        setEstimasiTiba(e.target.value);
+                        setFormErrors((prev) => ({ ...prev, estimasiTiba: '' }));
+                      }}
+                      required
+                    />
+                    {formErrors.estimasiTiba && <div className="form-error-text">{formErrors.estimasiTiba}</div>}
                   </div>
                 </div>
 
@@ -1137,6 +1520,153 @@ const VendorDashboard = () => {
               </div>
             </div>
           )}
+
+          {activeTab === 'analytics' && (
+            <div className="page-section active">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+                <div>
+                  {vendorAnalytics?.generated_at && (
+                    <p style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                      Generated {new Date(vendorAnalytics.generated_at).toLocaleString()}
+                    </p>
+                  )}
+                </div>
+                <button className="btn btn-outline" onClick={() => { setAnalyticsFetched(false); fetchVendorAnalytics(); }} disabled={analyticsLoading}>
+                  <i className="fa-solid fa-rotate"></i> Refresh
+                </button>
+              </div>
+
+              {analyticsLoading && (
+                <div style={{ textAlign: 'center', padding: '48px', color: '#64748b' }}>
+                  <i className="fa-solid fa-spinner fa-spin"></i> Loading analytics...
+                </div>
+              )}
+
+              {analyticsError && !analyticsLoading && (
+                <div style={{ padding: '2rem', textAlign: 'center', color: '#dc2626' }}>
+                  <i className="fa-solid fa-circle-exclamation"></i> {analyticsError}
+                  <div style={{ marginTop: '1rem' }}>
+                    <button className="btn btn-outline" onClick={fetchVendorAnalytics}>Retry</button>
+                  </div>
+                </div>
+              )}
+
+              {!analyticsLoading && !analyticsError && vendorAnalytics && (() => {
+                const { schedule_risk, action_queue, audit_evidence_summary, discrepancy_by_part, trend_by_date } = vendorAnalytics;
+                const partRows = buildDiscrepancyByPartRows(discrepancy_by_part);
+                const auditSummary = summarizeAuditEvidence(audit_evidence_summary);
+                const trendData = buildTrendChartData(trend_by_date);
+
+                return (
+                  <>
+                    {/* Signal Cards */}
+                    <div className="summary-cards" style={{ marginBottom: '1.5rem' }}>
+                      <div className="summary-card">
+                        <div className="summary-card-label">Dispatch Today</div>
+                        <div className="summary-card-value">{schedule_risk.dispatch_today}</div>
+                      </div>
+                      <div className="summary-card">
+                        <div className="summary-card-label">Arrival Today</div>
+                        <div className="summary-card-value">{schedule_risk.arrival_today}</div>
+                      </div>
+                      <div className="summary-card">
+                        <div className="summary-card-label">Overdue Shipping</div>
+                        <div className="summary-card-value" style={{ color: schedule_risk.overdue_shipping > 0 ? '#dc2626' : undefined }}>{schedule_risk.overdue_shipping}</div>
+                      </div>
+                      <div className="summary-card">
+                        <div className="summary-card-label">Draft Pending Submit</div>
+                        <div className="summary-card-value">{action_queue.draft_pending_submit}</div>
+                      </div>
+                      <div className="summary-card">
+                        <div className="summary-card-label">QR Not Ready</div>
+                        <div className="summary-card-value">{action_queue.submitted_qr_not_ready}</div>
+                      </div>
+                    </div>
+
+                    {/* Trend Chart */}
+                    <div className="card" style={{ padding: '1.5rem', marginBottom: '1.5rem' }}>
+                      <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.25rem' }}>Shipment Trend</h3>
+                      <p style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '1rem' }}>By dispatch date · latest 30 points</p>
+                      {trend_by_date.length > 0 ? (
+                        <AnalyticsTrendChart data={trendData} />
+                      ) : (
+                        <div style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>No trend data available yet.</div>
+                      )}
+                    </div>
+
+                    {/* Discrepancy by Part */}
+                    <div className="card" style={{ padding: '1.5rem', marginBottom: '1.5rem' }}>
+                      <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>Discrepancy by Part</h3>
+                      {partRows.length > 0 ? (
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
+                              <th style={{ textAlign: 'left', padding: '8px 0', color: '#475569', fontWeight: 600 }}>Part</th>
+                              <th style={{ textAlign: 'center', padding: '8px', color: '#475569', fontWeight: 600 }}>Mismatch</th>
+                              <th style={{ textAlign: 'center', padding: '8px', color: '#475569', fontWeight: 600 }}>Missing</th>
+                              <th style={{ textAlign: 'center', padding: '8px', color: '#475569', fontWeight: 600 }}>Over</th>
+                              <th style={{ textAlign: 'center', padding: '8px', color: '#475569', fontWeight: 600 }}>Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {partRows.map((row) => (
+                              <tr key={row.part_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '10px 0', fontWeight: 500 }}>{row.part_name}</td>
+                                <td style={{ textAlign: 'center', padding: '10px 8px' }}>{row.mismatch}</td>
+                                <td style={{ textAlign: 'center', padding: '10px 8px' }}>{row.missing}</td>
+                                <td style={{ textAlign: 'center', padding: '10px 8px' }}>{row.over}</td>
+                                <td style={{ textAlign: 'center', padding: '10px 8px', fontWeight: 700 }}>{row.total_non_match}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : (
+                        <div style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>No part discrepancy data available.</div>
+                      )}
+                    </div>
+
+                    {/* Audit Evidence */}
+                    <div className="card" style={{ padding: '1.5rem' }}>
+                      <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>Audit Evidence</h3>
+                      <div className="summary-cards">
+                        <div className="summary-card">
+                          <div className="summary-card-label">
+                            With Photo{' '}
+                            <span style={{ fontSize: '0.7rem', background: '#fef9c3', padding: '1px 5px', borderRadius: '4px' }}>partial</span>
+                          </div>
+                          <div className="summary-card-value">
+                            {auditSummary.withPhoto}{' '}
+                            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>({auditSummary.photoPct}%)</span>
+                          </div>
+                        </div>
+                        <div className="summary-card">
+                          <div className="summary-card-label">Without Photo</div>
+                          <div className="summary-card-value" style={{ color: auditSummary.withoutPhoto > 0 ? '#d97706' : undefined }}>{auditSummary.withoutPhoto}</div>
+                        </div>
+                        <div className="summary-card">
+                          <div className="summary-card-label">
+                            With Location{' '}
+                            <span style={{ fontSize: '0.7rem', background: '#fef9c3', padding: '1px 5px', borderRadius: '4px' }}>partial</span>
+                          </div>
+                          <div className="summary-card-value">
+                            {auditSummary.withLocation}{' '}
+                            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>({auditSummary.locationPct}%)</span>
+                          </div>
+                        </div>
+                        <div className="summary-card">
+                          <div className="summary-card-label">With Timestamp</div>
+                          <div className="summary-card-value">{auditSummary.withTimestamp}</div>
+                        </div>
+                      </div>
+                      <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.75rem' }}>
+                        Photo = tabel_foto records only. Location = warehouse context, not GPS.
+                      </p>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          )}
         </div>
       </main>
 
@@ -1246,6 +1776,7 @@ const VendorDashboard = () => {
                     <QRCodeSVG id={`qr-svg-${token.ID_outbound_detail || idx}`} value={token.qr_token || 'QR_TOKEN_NOT_AVAILABLE'} size={150} />
                   </div>
                   <div style={{ fontSize: '0.875rem', fontWeight: 500, color: '#475569', wordBreak: 'break-all' }}>
+                    Product: {getQrProductName(token)}<br/>
                     Detail ID: {token.ID_outbound_detail}<br/>
                     Barang ID: {token.ID_barang || 'N/A'}<br/>
                   </div>
@@ -1274,7 +1805,7 @@ const VendorDashboard = () => {
               ))}
               {!qrLoading && qrTokens.length === 0 && (
                 <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '20px', color: '#64748b' }}>
-                  No QR tokens generated yet.
+                  No QR tokens were returned for this shipment yet. If the shipment was already submitted, this likely needs backend verification.
                 </div>
               )}
             </div>
