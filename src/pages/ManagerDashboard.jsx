@@ -311,10 +311,16 @@ const ManagerDashboard = () => {
   });
   const assignedWarehouse = user?.warehouse || null;
   const warehouseScopeLabel = warehouseScope === 'default'
-    ? (assignedWarehouse?.nama_gudang || 'Assigned default warehouse')
+    ? (assignedWarehouse?.nama_gudang || 'Gudang default akun')
     : warehouseScope === 'all'
-      ? 'All warehouses'
-      : (warehouses.find((warehouse) => String(warehouse.ID_gudang) === String(warehouseScope))?.nama_gudang || `Warehouse ${warehouseScope}`);
+      ? 'Semua gudang'
+      : (warehouses.find((warehouse) => String(warehouse.ID_gudang) === String(warehouseScope))?.nama_gudang || `Gudang ${warehouseScope}`);
+  const managerCardLabelMap = {
+    'Total Shipments': 'Perlu keputusan',
+    Shipping: 'Dalam pengiriman',
+    Delivered: 'Selesai diverifikasi',
+    'Pending Review': 'Shipment bermasalah',
+  };
 
   const getStatusBadge = (status) => {
     switch(status) {
@@ -527,7 +533,7 @@ const ManagerDashboard = () => {
         onSignOut={() => setLogoutConfirmOpen(true)}
         sections={[
           {
-            label: 'Overview',
+            label: 'Dashboard',
             items: [
               {
                 value: 'dashboard',
@@ -537,24 +543,24 @@ const ManagerDashboard = () => {
               },
               {
                 value: 'shipments',
-                label: 'Shipments',
+                label: 'Pengiriman',
                 icon: 'fa-solid fa-truck-fast',
                 onClick: () => openSidebarSection('shipments'),
               },
             ],
           },
           {
-            label: 'Verification',
+            label: 'Verifikasi',
             items: [
               {
                 value: 'verification-results',
-                label: 'Verification results',
+                label: 'Hasil verifikasi',
                 icon: 'fa-solid fa-clipboard-check',
                 onClick: () => openSidebarSection('verification-results'),
               },
               {
                 value: 'discrepancy-review',
-                label: 'Discrepancy review',
+                label: 'Tinjau selisih',
                 icon: 'fa-solid fa-code-pull-request',
                 badge: pendingCount > 0 ? pendingCount : null,
                 onClick: () => openDiscrepancyReview(),
@@ -562,11 +568,11 @@ const ManagerDashboard = () => {
             ],
           },
           {
-            label: 'Reports',
+            label: 'Laporan',
             items: [
               {
                 value: 'reports',
-                label: 'Vendor reports',
+                label: 'Laporan R1',
                 icon: 'fa-solid fa-file-invoice',
                 onClick: () => setActiveSidebar('reports'),
               },
@@ -578,27 +584,23 @@ const ManagerDashboard = () => {
       {/* Main Content */}
       <main className="main-content">
         {/* Header */}
-        <header className="topbar">
-          <div className="search-bar">
-            <i className="fa-solid fa-search"></i>
-            <input type="text" placeholder="Search Shipment ID, Vendor Name, or Status..." />
+        <header className="topbar topbar-compact">
+          <div className="manager-topbar-copy">
+            <span className="manager-topbar-kicker">Scope aktif</span>
+            <strong>{warehouseScopeLabel}</strong>
           </div>
           <div className="topbar-actions">
             <div className="date-badge">
               <i className="fa-regular fa-calendar"></i>
-              <span>{new Date().toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+              <span>{new Date().toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
             </div>
-            <button className="icon-btn">
-              <i className="fa-regular fa-bell"></i>
-              {pendingCount > 0 && <span className="notification-dot"></span>}
-            </button>
-            <div className="user-profile">
+            <div className="user-profile manager-user-chip">
               <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: '#003399', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
                 {user ? user.nama?.charAt(0).toUpperCase() : 'M'}
               </div>
               <div className="user-info">
                 <span className="user-name">{user ? user.nama : 'Manager'}</span>
-                <span className="user-role">{user ? user.role : 'Warehouse Manager'}</span>
+                <span className="user-role">{user ? user.role : 'Manager gudang'}</span>
               </div>
             </div>
           </div>
@@ -609,8 +611,8 @@ const ManagerDashboard = () => {
             <>
               <div className="page-header">
                 <div>
-                  <h1>Manager Dashboard</h1>
-                  <p className="subtitle">Welcome back, {user ? user.nama.split(' ')[0] : 'Manager'}. Review and resolve all shipment discrepancies.</p>
+                  <h1>Dashboard</h1>
+                  <p className="subtitle">Pantau kasus prioritas dan progres gudang.</p>
                 </div>
                 <div className="header-actions" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
                   <div className="filter-group" style={{ minWidth: '220px' }}>
@@ -620,9 +622,9 @@ const ManagerDashboard = () => {
                       onChange={(event) => setWarehouseScope(event.target.value)}
                     >
                       <option value="default">
-                        {assignedWarehouse?.nama_gudang ? `Default: ${assignedWarehouse.nama_gudang}` : 'Use assigned default'}
+                        {assignedWarehouse?.nama_gudang ? `Default: ${assignedWarehouse.nama_gudang}` : 'Pakai gudang default'}
                       </option>
-                      <option value="all">All Warehouses</option>
+                      <option value="all">Semua gudang</option>
                       {warehouses.map((warehouse) => (
                         <option key={warehouse.ID_gudang} value={String(warehouse.ID_gudang)}>
                           {warehouse.nama_gudang}
@@ -631,18 +633,15 @@ const ManagerDashboard = () => {
                     </select>
                   </div>
                   <button className="btn btn-outline" onClick={handleExportReport} disabled={dashboardLoading}>
-                    <i className="fa-solid fa-download"></i> {dashboardLoading ? 'Preparing...' : 'Export Report'}
+                    <i className="fa-solid fa-download"></i> {dashboardLoading ? 'Menyiapkan...' : 'Ekspor'}
                   </button>
                 </div>
               </div>
 
-              <div className="card data-card" style={{ marginBottom: '1rem' }}>
+              <div className="card data-card manager-context-card" style={{ marginBottom: '0.85rem' }}>
                 <div className="table-toolbar" style={{ justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
                   <div className="table-summary-text">
-                    Warehouse context: <strong>{warehouseScopeLabel}</strong>
-                  </div>
-                  <div className="table-summary-text text-muted">
-                    Default scope comes from your account. Switch to a specific warehouse or all warehouses when needed.
+                    Scope aktif: <strong>{warehouseScopeLabel}</strong>
                   </div>
                 </div>
               </div>
@@ -665,7 +664,7 @@ const ManagerDashboard = () => {
                     onClick={() => openManagerPrimaryCard(card)}
                   >
                     <div className="kpi-header">
-                      <span className="kpi-title">{card.label}</span>
+                      <span className={`kpi-title ${card.key === 'pending_review' && card.value > 0 ? 'is-urgent' : ''}`}>{managerCardLabelMap[card.label] || card.label}</span>
                       <i className={`fa-solid text-muted ${
                         card.key === 'total'
                           ? 'fa-box-open'
@@ -677,13 +676,163 @@ const ManagerDashboard = () => {
                       }`}></i>
                     </div>
                     <div className={`kpi-value ${card.key === 'pending_review' && card.value > 0 ? 'text-warning' : ''}`}>{card.value}</div>
-                    <div className={`kpi-trend ${card.key === 'pending_review' && card.value > 0 ? 'text-danger' : 'text-muted'}`}>
+                    <div className={`kpi-trend ${card.key === 'pending_review' && card.value > 0 ? 'text-danger kpi-trend-urgent' : 'text-muted'}`}>
                       {card.key === 'total' ? <i className="fa-solid fa-arrow-trend-up"></i> : null} {card.description}
                     </div>
                   </button>
                 ))}
               </div>
 
+              <div className="manager-visual-grid mt-4">
+                <section className="manager-visual-card manager-visual-card--chart">
+                  <div className="manager-visual-card-head">
+                    <div>
+                      <span className="manager-visual-kicker">Trend aktif</span>
+                      <h2>Pergerakan shipment dan selisih</h2>
+                    </div>
+                    <button className="btn btn-outline btn-sm" onClick={() => fetchManagerAnalytics()} disabled={analyticsLoading}>
+                      {analyticsLoading ? 'Memuat...' : 'Refresh'}
+                    </button>
+                  </div>
+
+                  {analyticsPending ? (
+                    <>
+                      <div className="manager-visual-chip-row">
+                        {Array.from({ length: 3 }).map((_, index) => (
+                          <div key={index} className="manager-visual-chip manager-skeleton-card">
+                            <span className="manager-skeleton-line short"></span>
+                            <strong className="manager-skeleton-line value"></strong>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="manager-visual-chart manager-skeleton-card manager-skeleton-chart"></div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="manager-visual-chip-row">
+                        {managerHeroMetrics.slice(0, 3).map((metric) => (
+                          <div key={metric.key} className={`manager-visual-chip tone-${metric.tone}`}>
+                            <div className="manager-visual-chip-top">
+                              <span className="manager-visual-chip-icon">
+                                <i className={`fa-solid ${
+                                  metric.tone === 'success'
+                                    ? 'fa-circle-check'
+                                    : metric.tone === 'warning'
+                                      ? 'fa-triangle-exclamation'
+                                      : 'fa-truck-fast'
+                                }`}></i>
+                              </span>
+                              <span>{metric.label}</span>
+                            </div>
+                            <strong>{metric.value}</strong>
+                          </div>
+                        ))}
+                      </div>
+                      {analyticsPreviewAvailable && analyticsModel.trend_by_date.length > 0 ? (
+                        <div className="manager-visual-chart">
+                          <AnalyticsTrendChart data={analyticsTrendData} theme="manager" />
+                        </div>
+                      ) : (
+                        <div className="manager-visual-empty">Trend belum tersedia.</div>
+                      )}
+                    </>
+                  )}
+                </section>
+
+                <section className="manager-visual-card manager-visual-card--priority">
+                  <div className="manager-visual-card-head">
+                    <div>
+                      <span className="manager-visual-kicker">Prioritas</span>
+                      <h2>Kasus yang perlu keputusan sekarang</h2>
+                    </div>
+                    {pendingReviewQueue.length > 0 ? <span className="status-badge status-warning">{pendingReviewQueue.length} kasus</span> : null}
+                  </div>
+
+                  {pendingReviewQueue.length > 0 ? (
+                    <div className="vendor-performance-mini-list manager-priority-list">
+                      {pendingReviewQueue.slice(0, 3).map((item) => (
+                        <button key={item.ID_discrepancy} type="button" className="vendor-performance-mini-item manager-priority-item" onClick={() => setActiveTab('pending')}>
+                          <div className="manager-priority-copy">
+                            <strong>{item.outbound_detail?.outbound?.vendor?.nama_vendor || `Vendor ${item.ID_vendor || '-'}`}</strong>
+                            <span>{item.outbound_detail?.barang?.nama_barang || `Outbound Detail ${item.ID_outbound_detail || '-'}`}</span>
+                          </div>
+                          <div className="manager-priority-meta">
+                            <strong>{item.status || 'pending'}</strong>
+                            <span>{`Selisih ${item.selisih ?? 0} • ${formatDateTime(item.detected_at)}`}</span>
+                          </div>
+                          <i className="fa-solid fa-arrow-up-right-from-square manager-priority-arrow"></i>
+                        </button>
+                      ))}
+                      {pendingReviewQueue.length > 3 && (
+                        <button type="button" className="manager-inline-link" onClick={() => setActiveTab('pending')}>
+                          Lihat {pendingReviewQueue.length - 3} kasus lain
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="manager-visual-empty">Tidak ada discrepancy yang menunggu review.</div>
+                  )}
+                </section>
+
+                <section className="manager-visual-card manager-visual-card--breakdown">
+                  <div className="manager-visual-card-head">
+                    <div>
+                      <span className="manager-visual-kicker">Snapshot</span>
+                      <h2>Breakdown selisih</h2>
+                    </div>
+                  </div>
+                  <div className="manager-visual-stat-grid">
+                    <div className="manager-visual-stat">
+                      <span>Match</span>
+                      <strong>{discrepancyStatusCounts.match || 0}</strong>
+                    </div>
+                    <div className="manager-visual-stat">
+                      <span>Mismatch</span>
+                      <strong>{discrepancyStatusCounts.mismatch || 0}</strong>
+                    </div>
+                    <div className="manager-visual-stat">
+                      <span>Missing</span>
+                      <strong>{discrepancyStatusCounts.missing || 0}</strong>
+                    </div>
+                    <div className="manager-visual-stat">
+                      <span>Over</span>
+                      <strong>{discrepancyStatusCounts.over || 0}</strong>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="manager-visual-card manager-visual-card--vendor">
+                  <div className="manager-visual-card-head">
+                    <div>
+                      <span className="manager-visual-kicker">Vendor rawan</span>
+                      <h2>Paling butuh perhatian</h2>
+                    </div>
+                  </div>
+                  {analyticsData.length > 0 ? (
+                    <div className="vendor-performance-mini-list">
+                      {analyticsData.slice(0, 3).map((item) => (
+                        <div key={item.vendor_id || item.vendor_name || item.vendor} className="vendor-performance-mini-item">
+                          <div>
+                            <strong>{item.vendor_name || item.vendor || `Vendor ${item.vendor_id || '-'}`}</strong>
+                            <span>{item.shipments_with_discrepancy ?? item.total_discrepancies ?? 0} shipment bermasalah</span>
+                          </div>
+                          <div>
+                            <strong>{formatRate(item.discrepancy_rate ?? item.rate)}</strong>
+                            <span>{item.total_shipments} shipment</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="manager-visual-empty">
+                      {secondaryLoading ? 'Memuat vendor...' : 'Belum ada snapshot vendor.'}
+                    </div>
+                  )}
+                </section>
+              </div>
+
+              {false && (
+              <>
               <div className="manager-spotlight-card">
                 <div className="manager-spotlight-copy">
                   <span className="manager-spotlight-eyebrow">Highlighted now</span>
@@ -748,7 +897,7 @@ const ManagerDashboard = () => {
                 )}
               </div>
 
-              <div className="manager-insight-grid mt-4">
+              <div className="manager-insight-grid manager-insight-grid--legacy mt-4">
                 <div className="insight-card">
                   <div className="insight-card-header">
                     <div>
@@ -787,8 +936,7 @@ const ManagerDashboard = () => {
                 <div className="insight-card">
                   <div className="insight-card-header">
                     <div>
-                      <h2>Discrepancy Breakdown</h2>
-                      <p>Operational view of verification outcomes.</p>
+                      <h2>Breakdown selisih</h2>
                     </div>
                   </div>
                   <div className="breakdown-grid">
@@ -814,8 +962,8 @@ const ManagerDashboard = () => {
                 <div className="insight-card">
                   <div className="insight-card-header">
                     <div>
-                      <h2>Action Queue</h2>
-                      <p>Operational backlog that still needs a manager decision.</p>
+                      <h2>Antrian aksi</h2>
+                      <p>Backlog operasional yang masih menunggu keputusan.</p>
                     </div>
                   </div>
                   <div className="queue-signal-list">
@@ -856,24 +1004,30 @@ const ManagerDashboard = () => {
                 <div className="insight-card">
                   <div className="insight-card-header">
                     <div>
-                      <h2>Pending Review Queue</h2>
-                      <p>Queue discrepancy yang paling perlu keputusan manager sekarang.</p>
+                      <h2>Kasus yang perlu keputusan sekarang</h2>
                     </div>
+                    {pendingReviewQueue.length > 0 ? <span className="status-badge status-warning">{pendingReviewQueue.length} kasus</span> : null}
                   </div>
                   {pendingReviewQueue.length > 0 ? (
-                    <div className="vendor-performance-mini-list">
-                      {pendingReviewQueue.map((item) => (
-                        <div key={item.ID_discrepancy} className="vendor-performance-mini-item">
-                          <div>
+                    <div className="vendor-performance-mini-list manager-priority-list">
+                      {pendingReviewQueue.slice(0, 3).map((item) => (
+                        <button key={item.ID_discrepancy} type="button" className="vendor-performance-mini-item manager-priority-item" onClick={() => setActiveTab('pending')}>
+                          <div className="manager-priority-copy">
                             <strong>{item.outbound_detail?.outbound?.vendor?.nama_vendor || `Vendor ${item.ID_vendor || '-'}`}</strong>
                             <span>{item.outbound_detail?.barang?.nama_barang || `Outbound Detail ${item.ID_outbound_detail || '-'}`}</span>
                           </div>
-                          <div>
+                          <div className="manager-priority-meta">
                             <strong>{item.status || 'pending'}</strong>
-                            <span>{formatDateTime(item.detected_at)}</span>
+                            <span>Selisih {item.selisih ?? 0} • {formatDateTime(item.detected_at)}</span>
                           </div>
-                        </div>
+                          <i className="fa-solid fa-arrow-up-right-from-square manager-priority-arrow"></i>
+                        </button>
                       ))}
+                      {pendingReviewQueue.length > 3 && (
+                        <button type="button" className="manager-inline-link" onClick={() => setActiveTab('pending')}>
+                          Lihat {pendingReviewQueue.length - 3} kasus lain
+                        </button>
+                      )}
                     </div>
                   ) : (
                     <div className="manager-activity-empty">Tidak ada discrepancy yang menunggu review.</div>
@@ -883,8 +1037,7 @@ const ManagerDashboard = () => {
                 <div className="insight-card">
                   <div className="insight-card-header">
                     <div>
-                      <h2>Vendor Performance Snapshot</h2>
-                      <p>Quick read of discrepancy rate by vendor.</p>
+                      <h2>Vendor paling rawan</h2>
                     </div>
                     {secondaryLoading && <span className="status-badge status-pending">Syncing</span>}
                   </div>
@@ -987,21 +1140,21 @@ const ManagerDashboard = () => {
                   </div>
                 </div>
               </div>
+              </>
+              )}
 
               {/* Main Data Section */}
+              {activeTab !== 'overview' && (
               <div className="card data-card mt-4">
                 <div className="card-tabs">
-                  <button className={`tab-btn ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>
-                    Shipment Overview <span className="tab-badge">All</span>
-                  </button>
                   <button className={`tab-btn ${activeTab === 'pending' ? 'active' : ''}`} onClick={() => setActiveTab('pending')}>
-                    Pending Review <span className="tab-badge warning">{pendingCount}</span>
+                    Perlu tindak lanjut <span className="tab-badge warning">{pendingCount}</span>
                   </button>
                   <button className={`tab-btn ${activeTab === 'inbound-received' ? 'active' : ''}`} onClick={() => setActiveTab('inbound-received')}>
-                    Inbound Received <span className="tab-badge">{inboundReceivedItems.length}</span>
+                    Inbound diterima <span className="tab-badge">{inboundReceivedItems.length}</span>
                   </button>
                   <button className={`tab-btn ${activeTab === 'discrepancies' ? 'active' : ''}`} onClick={() => setActiveTab('discrepancies')}>
-                    Resolved Discrepancies <span className="tab-badge">{resolvedDiscrepancies.length}</span>
+                    Riwayat selesai <span className="tab-badge">{resolvedDiscrepancies.length}</span>
                   </button>
                 </div>
 
@@ -1220,6 +1373,7 @@ const ManagerDashboard = () => {
                 )}
 
               </div>
+              )}
             </>
           )}
 

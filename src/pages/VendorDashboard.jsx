@@ -1,21 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import {
-  ArcElement,
-  Chart as ChartJS,
-  Legend,
-  Tooltip,
-} from 'chart.js';
-import { Doughnut } from 'react-chartjs-2';
 import { QRCodeSVG } from 'qrcode.react';
 import { API_BASE_URL } from '../config/api';
 import {
   buildRecentShipmentActivity,
-  buildShipmentChartSegments,
   buildVendorDashboardHeroMetrics,
   buildVendorDashboardPrimaryCards,
-  buildVendorSummaryCards,
   buildQrDownloadLabel,
   canAccessQrForShipment,
   filterShipmentsByStatusGroup,
@@ -30,13 +21,13 @@ import {
   buildTrendChartData,
   buildScheduleRiskCards,
   buildActionQueueCards,
-  buildTopDiscrepancyPartHighlights,
-  summarizeAuditEvidence,
 } from '../utils/dashboardLogic';
 import AnalyticsTrendChart from '../components/AnalyticsTrendChart';
 import AppSidebar from '../components/navigation/AppSidebar';
 import AppButton from '../components/ui/AppButton';
+import BaseModalShell from '../components/ui/BaseModalShell';
 import ConfirmModal from '../components/ui/ConfirmModal';
+import StatusModal from '../components/ui/StatusModal';
 import './VendorDashboard.css';
 
 const vendorStatusText = {
@@ -54,9 +45,6 @@ const resolveVendorOrigin = (vendorUser) => (
   || vendorUser?.lokasi_vendor
   || ''
 );
-
-ChartJS.register(ArcElement, Legend, Tooltip);
-
 const VendorDashboard = () => {
   const approvedProductNames = [
     'Printer Housing Cover',
@@ -111,6 +99,12 @@ const VendorDashboard = () => {
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [reportModalData, setReportModalData] = useState(null);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [statusModal, setStatusModal] = useState({
+    open: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
 
   // Notifications State
   const [notifications, setNotifications] = useState([]);
@@ -131,6 +125,15 @@ const VendorDashboard = () => {
   const navigate = useNavigate();
   const vendorOrigin = resolveVendorOrigin(user);
   const hasPresetOrigin = Boolean(vendorOrigin);
+
+  const openStatusModal = (type, title, message) => {
+    setStatusModal({
+      open: true,
+      type,
+      title,
+      message,
+    });
+  };
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
@@ -355,7 +358,7 @@ const VendorDashboard = () => {
       setReportModalData(response.data?.data || null);
     } catch (error) {
       console.error('Error loading vendor report:', error);
-      alert('Failed to load the mismatch report.');
+      openStatusModal('error', 'Laporan gagal dimuat', 'Mismatch report belum bisa dibuka saat ini.');
     }
   };
 
@@ -588,7 +591,7 @@ const VendorDashboard = () => {
         setSelectedShipmentId(outboundId);
         setShowQRModal(true);
       } else {
-        alert('Shipment saved as draft successfully!');
+        openStatusModal('success', 'Draft tersimpan', 'Shipment berhasil disimpan sebagai draft.');
       }
 
       // Reset form
@@ -607,7 +610,7 @@ const VendorDashboard = () => {
     } catch (error) {
       console.error(error);
       const apiMessage = error.response?.data?.message || error.message;
-      alert(`Error: ${apiMessage}`);
+      openStatusModal('error', 'Shipment gagal disimpan', apiMessage);
     } finally {
       setSubmitLoading(false);
     }
@@ -641,7 +644,7 @@ const VendorDashboard = () => {
     } catch (error) {
       console.error(error);
       setShowQRModal(false);
-      alert('Failed to load QR Tokens.');
+      openStatusModal('error', 'QR gagal dimuat', 'QR shipment belum bisa dimuat saat ini.');
     } finally {
       setQrLoading(false);
     }
@@ -649,16 +652,16 @@ const VendorDashboard = () => {
 
   const handleCopyQrToken = async (qrToken) => {
     if (!qrToken) {
-      alert('QR token is not available for this item yet.');
+      openStatusModal('warning', 'Token belum tersedia', 'QR token untuk box ini belum tersedia.');
       return;
     }
 
     try {
       await navigator.clipboard.writeText(qrToken);
-      alert('QR token copied successfully.');
+      openStatusModal('success', 'Token disalin', 'QR token berhasil disalin ke clipboard.');
     } catch (error) {
       console.error('Failed to copy QR token:', error);
-      alert(`Failed to copy automatically. Please copy this token manually: ${qrToken}`);
+      openStatusModal('warning', 'Salin otomatis gagal', `Silakan salin token ini secara manual: ${qrToken}`);
     }
   };
 
@@ -696,13 +699,13 @@ const VendorDashboard = () => {
 
   const handleDownloadQr = (token, index) => {
     if (!token?.qr_token) {
-      alert('QR token is not available for this item yet.');
+      openStatusModal('warning', 'QR belum tersedia', 'QR token untuk box ini belum tersedia.');
       return;
     }
 
     const svgElement = document.getElementById(`qr-svg-${token.ID_outbound_detail || index}`);
     if (!svgElement) {
-      alert('QR code is still rendering. Please try again.');
+      openStatusModal('warning', 'QR belum siap', 'QR masih dirender. Coba lagi sebentar.');
       return;
     }
 
@@ -738,7 +741,7 @@ const VendorDashboard = () => {
       canvas.toBlob((blob) => {
         URL.revokeObjectURL(svgUrl);
         if (!blob) {
-          alert('Failed to prepare QR image for download.');
+          openStatusModal('error', 'Unduhan gagal', 'Gambar QR belum bisa disiapkan untuk diunduh.');
           return;
         }
 
@@ -755,7 +758,7 @@ const VendorDashboard = () => {
 
     image.onerror = () => {
       URL.revokeObjectURL(svgUrl);
-      alert('Failed to prepare QR image for download.');
+      openStatusModal('error', 'Unduhan gagal', 'Gambar QR belum bisa disiapkan untuk diunduh.');
     };
 
     image.src = svgUrl;
@@ -779,7 +782,7 @@ const VendorDashboard = () => {
       setSelectedShipmentDetails(response.data?.data || shipment);
     } catch (error) {
       console.error('Error fetching shipment details:', error);
-      alert('Failed to load shipment details.');
+      openStatusModal('error', 'Detail gagal dimuat', 'Detail shipment belum bisa dimuat saat ini.');
     } finally {
       setDetailsLoading(false);
     }
@@ -901,11 +904,8 @@ const VendorDashboard = () => {
   const shipmentCounts = getShipmentStatusCounts(shipments);
   const overviewCounts = vendorOverview?.shipment_status_distribution || shipmentCounts;
   const filteredShipments = filterShipmentsByStatusGroup(shipments, shipmentStatusFilter);
-  const vendorSummaryCards = buildVendorSummaryCards(overviewCounts);
   const recentShipmentActivity = buildRecentShipmentActivity(shipments, 8);
-  const shipmentChartSegments = buildShipmentChartSegments(overviewCounts);
   const upcomingShipmentSchedule = getUpcomingShipmentSchedule(shipments, 4);
-  const secondaryDashboardLoading = notificationsLoading || productsLoading;
   const qrReadiness = vendorOverview?.qr_readiness || {
     shipments_ready: shipments.filter((shipment) => shipment.qr_ready).length,
     shipments_not_ready: shipments.filter((shipment) => !shipment.qr_ready && normalizeStatus(shipment.status) !== 'draft').length,
@@ -922,50 +922,12 @@ const VendorDashboard = () => {
       over: 0,
     },
   };
-  const vendorStatusChartData = shipmentChartSegments
-    .filter((segment) => segment.value > 0)
-    .map((segment) => ({
-      ...segment,
-      name: vendorSummaryCards.find((card) => card.key === segment.key)?.label || segment.label,
-    }));
-  const vendorStatusChart = {
-    labels: vendorStatusChartData.map((segment) => segment.name),
-    datasets: [
-      {
-        data: vendorStatusChartData.map((segment) => segment.value),
-        backgroundColor: vendorStatusChartData.map((segment) => segment.color),
-        borderWidth: 0,
-      },
-    ],
-  };
-  const vendorStatusChartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    cutout: '62%',
-    plugins: {
-      legend: {
-        position: 'bottom',
-        labels: {
-          usePointStyle: true,
-          padding: 16,
-        },
-      },
-      tooltip: {
-        callbacks: {
-          label: (context) => `${context.label}: ${context.raw} shipment`,
-        },
-      },
-    },
-  };
   const analyticsModel = vendorAnalytics || normalizeAnalyticsResponse(null);
-  const analyticsTopParts = buildTopDiscrepancyPartHighlights(analyticsModel.discrepancy_by_part, 3);
   const analyticsRiskCards = buildScheduleRiskCards(analyticsModel.schedule_risk);
   const analyticsActionCards = buildActionQueueCards(analyticsModel.action_queue);
-  const analyticsAuditSummary = summarizeAuditEvidence(analyticsModel.audit_evidence_summary);
   const analyticsTrendData = buildTrendChartData(analyticsModel.trend_by_date);
   const analyticsPreviewAvailable = Boolean(vendorAnalytics) && !analyticsError;
   const analyticsPending = analyticsLoading && !vendorAnalytics;
-  const topDiscrepancyTotal = analyticsTopParts.reduce((total, part) => total + Number(part.total_non_match || 0), 0);
   const notificationPreviewItems = notifications.slice(0, 4);
   const primaryDashboardCards = buildVendorDashboardPrimaryCards(overviewCounts, qrReadiness);
   const heroMetrics = buildVendorDashboardHeroMetrics({
@@ -1219,7 +1181,7 @@ const VendorDashboard = () => {
           {/* SECTION: Dashboard Overview */}
           {activeTab === 'dashboard' && (
             <div className="page-section active">
-              <div className="stats-grid">
+              <div className="stats-grid vendor-stats-grid">
                 {primaryDashboardCards.map((card) => (
                   <button key={card.key} type="button" className="stat-card stat-card-action stat-card-verbose" onClick={() => openPrimaryDashboardCard(card)}>
                     <div className={`stat-icon icon-${card.tone}`}><i className={`fa-solid ${
@@ -1240,11 +1202,14 @@ const VendorDashboard = () => {
                 ))}
               </div>
 
-              <div className="overview-grid overview-grid-primary">
+              <div className="overview-grid overview-grid-primary vendor-dashboard-grid">
                 <div className="card overview-card overview-card-feature vendor-hero-card">
                   <div className="card-header">
-                    <h2 className="card-title">Pergerakan Pengiriman</h2>
-                    <button className="btn btn-outline" onClick={() => fetchVendorAnalytics()} disabled={analyticsLoading}>Refresh insight</button>
+                    <div>
+                      <p className="vendor-section-kicker">Dashboard</p>
+                      <h2 className="card-title">Progress pengiriman</h2>
+                    </div>
+                    <button className="btn btn-outline" onClick={() => setActiveTab('create-shipment')}>Buat shipment</button>
                   </div>
                   <div className="overview-card-body vendor-hero-panel">
                     {analyticsPending ? (
@@ -1274,21 +1239,24 @@ const VendorDashboard = () => {
                             <AnalyticsTrendChart data={analyticsTrendData} theme="light" />
                           </div>
                         ) : (
-                          <div className="overview-empty-state">Analytics operasional belum siap ditampilkan.</div>
+                          <div className="overview-empty-state">Belum ada cukup data untuk membaca pola pengiriman.</div>
                         )}
                       </>
                     )}
                   </div>
                 </div>
 
-                <div className="card overview-card overview-card-compact">
+                <div className="card overview-card overview-card-compact vendor-focus-card">
                   <div className="card-header">
-                    <h2 className="card-title">Antrean Tindakan & Risiko</h2>
-                    <span className="status-badge status-submitted">Hari Ini</span>
+                    <div>
+                      <p className="vendor-section-kicker">Fokus</p>
+                      <h2 className="card-title">Yang perlu kamu cek</h2>
+                    </div>
+                    <button className="btn btn-outline" onClick={() => setActiveTab('shipments')}>Lihat daftar</button>
                   </div>
-                  <div className="overview-card-body">
-                    <div className="signal-card-grid signal-card-grid-compact">
-                      {operationalFocusCards.slice(0, 4).map((card) => (
+                  <div className="overview-card-body vendor-focus-body">
+                    <div className="signal-card-grid signal-card-grid-compact vendor-focus-grid">
+                      {operationalFocusCards.slice(0, 3).map((card) => (
                         <button
                           key={card.key}
                           type="button"
@@ -1300,9 +1268,19 @@ const VendorDashboard = () => {
                         </button>
                       ))}
                     </div>
-                    {criticalScheduleItems.length > 0 ? (
-                      <div className="schedule-mini-list">
-                        {criticalScheduleItems.map((shipment) => (
+                    <div className="vendor-focus-strip">
+                      <div className="vendor-focus-strip__item">
+                        <span>QR siap diunduh</span>
+                        <strong>{qrReadiness.shipments_ready}</strong>
+                      </div>
+                      <div className="vendor-focus-strip__item">
+                        <span>Perlu tindak lanjut</span>
+                        <strong>{discrepancyAlert.pending_review}</strong>
+                      </div>
+                    </div>
+                    {criticalScheduleItems.length > 0 && (
+                      <div className="schedule-mini-list vendor-focus-list">
+                        {criticalScheduleItems.slice(0, 2).map((shipment) => (
                           <div key={shipment.shipmentId} className="schedule-mini-item">
                             <div>
                               <strong>{shipment.shipmentNumber}</strong>
@@ -1315,95 +1293,101 @@ const VendorDashboard = () => {
                           </div>
                         ))}
                       </div>
-                    ) : (
-                      <div className="overview-empty-state">Belum ada shipment kritikal untuk dijadikan pengingat operasional.</div>
                     )}
                   </div>
                 </div>
               </div>
 
-              <div className="overview-grid overview-grid-secondary">
-                <div className="card overview-card">
+              <div className="overview-grid overview-grid-secondary vendor-dashboard-grid-secondary">
+                <div className="card overview-card vendor-schedule-card">
                   <div className="card-header">
-                    <h2 className="card-title">Part Paling Sering Selisih</h2>
-                    <span className="status-badge status-discrepancy">{topDiscrepancyTotal} kasus utama</span>
-                  </div>
-                  <div className="overview-card-body">
-                    {analyticsPending ? (
-                      <div className="top-part-list">
-                        {Array.from({ length: 3 }).map((_, index) => (
-                          <div key={index} className="top-part-item vendor-skeleton-card vendor-skeleton-row"></div>
-                        ))}
-                      </div>
-                    ) : analyticsPreviewAvailable && analyticsTopParts.length > 0 ? (
-                      <div className="top-part-list">
-                        {analyticsTopParts.map((part) => (
-                          <div key={part.part_id || part.part_name} className="top-part-item">
-                            <div>
-                              <strong>{part.part_name || `Part ${part.part_id || '-'}`}</strong>
-                              <span>
-                                Mismatch {part.mismatch || 0} | Missing {part.missing || 0} | Over {part.over || 0}
-                              </span>
-                            </div>
-                            <div>
-                              <strong>{part.total_non_match || 0}</strong>
-                              <span>Total kasus</span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="overview-empty-state">Belum ada analytics part yang siap ditampilkan.</div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="card overview-card">
-                  <div className="card-header">
-                    <h2 className="card-title">Kesiapan QR & Bukti Audit</h2>
-                    {secondaryDashboardLoading && <span className="status-badge status-draft">Sinkronisasi</span>}
-                  </div>
-                  <div className="overview-card-body">
-                    <div className="signal-card-grid">
-                      <div className="signal-card tone-info">
-                        <span>QR Siap</span>
-                        <strong>{qrReadiness.shipments_ready}</strong>
-                      </div>
-                      <div className="signal-card tone-warning">
-                        <span>QR Belum Lengkap</span>
-                        <strong>{qrReadiness.shipments_not_ready}</strong>
-                      </div>
-                      <div className="signal-card tone-success">
-                        <span>Cocok / Match</span>
-                        <strong>{discrepancyAlert.by_status?.match || 0}</strong>
-                      </div>
-                      <div className="signal-card tone-danger">
-                        <span>Selisih Kuantitas</span>
-                        <strong>{discrepancyAlert.by_status?.mismatch || 0}</strong>
-                      </div>
-                      <div className="signal-card tone-danger">
-                        <span>Barang Kurang</span>
-                        <strong>{discrepancyAlert.by_status?.missing || 0}</strong>
-                      </div>
-                      <div className="signal-card tone-warning">
-                        <span>Kelebihan</span>
-                        <strong>{discrepancyAlert.by_status?.over || 0}</strong>
-                      </div>
+                    <div>
+                      <p className="vendor-section-kicker">Jadwal</p>
+                      <h2 className="card-title">Pengiriman terdekat</h2>
                     </div>
+                    <button className="btn btn-outline" onClick={() => openShipmentFilter('shipping')}>Lihat yang jalan</button>
+                  </div>
+                  <div className="overview-card-body vendor-list-card-body">
+                    {upcomingShipmentSchedule.length > 0 ? (
+                      <div className="vendor-inline-list">
+                        {upcomingShipmentSchedule.map((shipment) => {
+                          const signal = getScheduleSignal(shipment);
+                          return (
+                            <button
+                              key={shipment.shipmentId}
+                              type="button"
+                              className="vendor-inline-item"
+                              onClick={() => setActiveTab('shipments')}
+                            >
+                              <div className="vendor-inline-item__main">
+                                <strong>{shipment.shipmentNumber}</strong>
+                                <span>{shipment.origin}</span>
+                              </div>
+                              <div className="vendor-inline-item__meta">
+                                <span>{formatCompactDateTime(shipment.dispatchAt || shipment.expectedArrivalAt)}</span>
+                                <strong className={`status-badge ${signal.tone}`}>{signal.label}</strong>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="overview-empty-state">Belum ada jadwal pengiriman yang bisa dipantau.</div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="card overview-card vendor-recent-card">
+                  <div className="card-header">
+                    <div>
+                      <p className="vendor-section-kicker">Terbaru</p>
+                      <h2 className="card-title">Shipment terbaru</h2>
+                    </div>
+                    <button className="btn btn-outline" onClick={() => setActiveTab('shipments')}>Buka daftar</button>
+                  </div>
+                  <div className="overview-card-body vendor-list-card-body">
+                    {shipmentsLoading ? (
+                      <div className="overview-empty-state">Memuat data pengiriman...</div>
+                    ) : recentShipmentActivity.length > 0 ? (
+                      <div className="vendor-inline-list">
+                        {recentShipmentActivity.slice(0, 4).map((activity) => (
+                          <button
+                            key={activity.shipmentId}
+                            type="button"
+                            className="vendor-inline-item"
+                            onClick={() => setActiveTab('shipments')}
+                          >
+                            <div className="vendor-inline-item__main">
+                              <strong>{activity.shipmentNumber}</strong>
+                              <span>{activity.origin}</span>
+                            </div>
+                            <div className="vendor-inline-item__meta">
+                              <span>{formatCompactDateTime(activity.timestamp)}</span>
+                              {getStatusBadge(activity.status)}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="overview-empty-state">Belum ada shipment yang bisa ditampilkan.</div>
+                    )}
                   </div>
                 </div>
               </div>
 
-              <div className="card">
+              <div className="card vendor-dashboard-table-card">
                 <div className="card-header">
-                  <h2 className="card-title">Aktivitas Pengiriman Terbaru</h2>
-                  <button className="btn btn-outline" onClick={() => setActiveTab('shipments')}>Lihat Semua</button>
+                  <div>
+                    <p className="vendor-section-kicker">Daftar singkat</p>
+                    <h2 className="card-title">Shipment terbaru</h2>
+                  </div>
+                  <button className="btn btn-outline" onClick={() => setActiveTab('shipments')}>Lihat semua</button>
                 </div>
                 <table>
                   <thead>
                     <tr>
-                      <th>Nomor Shipment</th>
-                      <th>Waktu Kirim</th>
+                      <th>Shipment</th>
+                      <th>Waktu kirim</th>
                       <th>Asal</th>
                       <th>Status</th>
                     </tr>
@@ -1414,7 +1398,7 @@ const VendorDashboard = () => {
                         <td colSpan="4" style={{ textAlign: 'center' }}>Memuat data pengiriman...</td>
                       </tr>
                     ) : recentShipmentActivity.length > 0 ? (
-                      recentShipmentActivity.map((activity) => (
+                      recentShipmentActivity.slice(0, 5).map((activity) => (
                         <tr key={activity.shipmentId}>
                           <td><strong>{activity.shipmentNumber}</strong></td>
                           <td>{formatCompactDateTime(activity.timestamp)}</td>
@@ -1424,7 +1408,7 @@ const VendorDashboard = () => {
                       ))
                     ) : (
                       <tr>
-                        <td colSpan="4" style={{ textAlign: 'center' }}>Belum ada aktivitas pengiriman.</td>
+                        <td colSpan="4" style={{ textAlign: 'center' }}>Belum ada shipment yang bisa ditampilkan.</td>
                       </tr>
                     )}
                   </tbody>
@@ -1436,73 +1420,111 @@ const VendorDashboard = () => {
           {/* SECTION: Shipments List */}
           {activeTab === 'shipments' && (
             <div className="page-section active">
-              <div className="card">
-                <div className="card-header" style={{ display: 'flex', gap: '16px' }}>
-                  <input type="text" className="form-control" placeholder="Search by ID or Destination..." style={{ maxWidth: '300px' }} />
-                  <select className="form-control" style={{ maxWidth: '200px' }} value={shipmentStatusFilter} onChange={(e) => setShipmentStatusFilter(e.target.value)}>
-                    <option value="total">All Status</option>
-                    <option value="draft">Belum Dikirim</option>
-                    <option value="shipping">Sedang Dikirim</option>
-                    <option value="delivered">Sudah Diterima</option>
-                    <option value="discrepancy">Perlu Tindak Lanjut</option>
-                  </select>
-                  <div style={{ flex: 1 }}></div>
-                  <button className="btn btn-primary" onClick={() => setActiveTab('create-shipment')}><i className="fa-solid fa-plus"></i> New Shipment</button>
+              <div className="card vendor-shipments-card">
+                <div className="card-header vendor-shipments-card__header">
+                  <div>
+                    <p className="vendor-section-kicker">Workspace</p>
+                    <h2 className="card-title">Daftar shipment</h2>
+                  </div>
+                  <AppButton type="button" onClick={() => setActiveTab('create-shipment')}>
+                    <i className="fa-solid fa-plus"></i>
+                    Shipment baru
+                  </AppButton>
                 </div>
-                <table>
+                <div className="vendor-shipments-toolbar">
+                  <div className="vendor-shipments-toolbar__filters">
+                    <select className="form-control vendor-shipments-filter" value={shipmentStatusFilter} onChange={(e) => setShipmentStatusFilter(e.target.value)}>
+                      <option value="total">Semua status</option>
+                      <option value="draft">Belum dikirim</option>
+                      <option value="shipping">Sedang dikirim</option>
+                      <option value="delivered">Sudah diterima</option>
+                      <option value="discrepancy">Perlu tindak lanjut</option>
+                    </select>
+                  </div>
+                  <div className="vendor-shipments-toolbar__summary">
+                    <span>{filteredShipments.length} shipment</span>
+                  </div>
+                </div>
+                <table className="vendor-shipments-table">
                   <thead>
                     <tr>
-                      <th>Shipment ID</th>
-                      <th>Dispatch Time</th>
-                      <th>Origin</th>
+                      <th>Shipment</th>
+                      <th>Waktu kirim</th>
+                      <th>Asal</th>
                       <th>Status</th>
-                      <th>Actions</th>
+                      <th>Aksi</th>
                     </tr>
                   </thead>
                   <tbody>
                     {shipmentsLoading ? (
                       <tr>
-                        <td colSpan="5" style={{ textAlign: 'center' }}>Loading shipments...</td>
+                        <td colSpan="5" style={{ textAlign: 'center' }}>Memuat shipment...</td>
                       </tr>
                     ) : filteredShipments.map(ship => (
                       <tr key={ship.ID_outbound}>
-                        <td><strong>{ship.ID_outbound}</strong></td>
+                        <td>
+                          <div className="vendor-shipment-row__main">
+                            <strong>{ship.no_pengiriman || `SHP-${ship.ID_outbound}`}</strong>
+                            <span>ID {ship.ID_outbound}</span>
+                          </div>
+                        </td>
                         <td>{formatDateTime(ship.waktu_kirim)}</td>
                         <td>{ship.lokasi_asal}</td>
-                          <td>{getStatusBadge(ship)}</td>
+                        <td>{getStatusBadge(ship)}</td>
                         <td>
-                          {ship.status === 'draft' && (
-                            <button className="btn btn-primary" style={{ padding: '6px 12px', marginRight: '8px' }} onClick={async () => {
-                              try {
-                                const session = await ensureVendorSession();
-                                if (!session) {
-                                  return;
-                                }
+                          <div className="vendor-shipment-row__actions">
+                            {ship.status === 'draft' && (
+                              <AppButton
+                                type="button"
+                                className="vendor-row-btn"
+                                onClick={async () => {
+                                  try {
+                                    const session = await ensureVendorSession();
+                                    if (!session) {
+                                      return;
+                                    }
 
-                                await axios.post(`${API_BASE_URL}/api/outbound/${ship.ID_outbound}/submit`, {}, {
-                                  headers: session.headers
-                                });
-                                await Promise.all([
-                                  fetchShipments(session),
-                                  fetchVendorOverview(session),
-                                ]);
-                                handleViewQR(ship.ID_outbound);
-                              } catch (error) {
-                                console.error('Error submitting shipment:', error);
-                                alert('Error submitting shipment');
-                              }
-                            }}>Submit</button>
-                          )}
-                          {canAccessQrForShipment(ship) && (
-                            <button className="btn btn-primary" style={{ padding: '6px 12px', marginRight: '8px' }} onClick={() => handleViewQR(ship.ID_outbound)}>QR Code</button>
-                          )}
-                          <button className="btn btn-outline" style={{ padding: '6px 12px' }} onClick={() => handleViewShipmentDetails(ship)}>Details</button>
+                                    await axios.post(`${API_BASE_URL}/api/outbound/${ship.ID_outbound}/submit`, {}, {
+                                      headers: session.headers
+                                    });
+                                    await Promise.all([
+                                      fetchShipments(session),
+                                      fetchVendorOverview(session),
+                                    ]);
+                                    handleViewQR(ship.ID_outbound);
+                                  } catch (error) {
+                                    console.error('Error submitting shipment:', error);
+                                    alert('Error submitting shipment');
+                                  }
+                                }}
+                              >
+                                Submit
+                              </AppButton>
+                            )}
+                            {canAccessQrForShipment(ship) && (
+                              <AppButton
+                                type="button"
+                                className="vendor-row-btn"
+                                onClick={() => handleViewQR(ship.ID_outbound)}
+                              >
+                                QR
+                              </AppButton>
+                            )}
+                            <AppButton
+                              type="button"
+                              variant="secondary"
+                              className="vendor-row-btn"
+                              onClick={() => handleViewShipmentDetails(ship)}
+                            >
+                              Detail
+                            </AppButton>
+                          </div>
                         </td>
                       </tr>
                     ))}
                     {!shipmentsLoading && filteredShipments.length === 0 && (
                       <tr>
-                        <td colSpan="5" style={{ textAlign: 'center' }}>No shipments found for this status.</td>
+                        <td colSpan="5" style={{ textAlign: 'center' }}>Belum ada shipment untuk status ini.</td>
                       </tr>
                     )}
                   </tbody>
@@ -1517,29 +1539,38 @@ const VendorDashboard = () => {
               <div className="card vendor-create-shipment">
                 <div className="card-header vendor-create-shipment__header">
                   <div className="vendor-create-shipment__title-block">
-                    <h2 className="card-title">Create Outbound Shipment</h2>
-                    <p className="vendor-create-shipment__subtitle">Prepare shipment details once, then submit to generate QR per box.</p>
+                    <p className="vendor-section-kicker">Langkah 1</p>
+                    <h2 className="card-title">Buat shipment baru</h2>
+                    <p className="vendor-create-shipment__subtitle">Isi rute, susun item, lalu kirim untuk membuat QR per box.</p>
                   </div>
                   <span className="status-badge status-draft">Status: Draft</span>
                 </div>
                 
+                <div className="vendor-create-shipment__section">
+                  <div className="vendor-create-shipment__section-head">
+                    <div className="vendor-create-shipment__step">1</div>
+                    <div>
+                      <h3>Rute pengiriman</h3>
+                      <p>Tentukan asal, gudang tujuan, dan jadwal kirim.</p>
+                    </div>
+                  </div>
                 <div className="form-grid vendor-create-shipment__meta-grid">
                   <div className="form-group">
-                    <label className="form-label">Origin (Lokasi Asal)</label>
+                    <label className="form-label">Lokasi asal</label>
                     <input
                       type="text"
                       className="form-control"
-                      placeholder={hasPresetOrigin ? '' : 'e.g. Vendor Warehouse A'}
+                      placeholder={hasPresetOrigin ? '' : 'Contoh: Vendor Warehouse A'}
                       value={lokasiAsal}
                       onChange={(e) => setLokasiAsal(e.target.value)}
                       readOnly={hasPresetOrigin}
                     />
                     {hasPresetOrigin ? (
-                      <div className="form-helper-text">Origin uses the vendor location already configured in master data.</div>
+                      <div className="form-helper-text">Otomatis mengikuti lokasi vendor yang sudah terdaftar.</div>
                     ) : null}
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Target Warehouse</label>
+                    <label className="form-label">Gudang tujuan</label>
                     <select
                       className={`form-control ${formErrors.targetWarehouseId ? 'form-control-error' : ''}`}
                       value={targetWarehouseId}
@@ -1549,7 +1580,7 @@ const VendorDashboard = () => {
                       }}
                       required
                     >
-                      <option value="">Choose warehouse...</option>
+                      <option value="">Pilih gudang tujuan...</option>
                       {warehouses.map((warehouse) => (
                         <option key={warehouse.ID_gudang} value={warehouse.ID_gudang}>
                           {warehouse.nama_gudang}
@@ -1559,7 +1590,7 @@ const VendorDashboard = () => {
                     {formErrors.targetWarehouseId && <div className="form-error-text">{formErrors.targetWarehouseId}</div>}
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Dispatch Date (Waktu Kirim)</label>
+                    <label className="form-label">Tanggal kirim</label>
                     <input
                       type="date"
                       className={`form-control ${formErrors.waktuKirim ? 'form-control-error' : ''}`}
@@ -1573,7 +1604,7 @@ const VendorDashboard = () => {
                     {formErrors.waktuKirim && <div className="form-error-text">{formErrors.waktuKirim}</div>}
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Expected Arrival (Estimasi Tiba)</label>
+                    <label className="form-label">Estimasi tiba</label>
                     <input
                       type="date"
                       className={`form-control ${formErrors.estimasiTiba ? 'form-control-error' : ''}`}
@@ -1588,16 +1619,20 @@ const VendorDashboard = () => {
                     {formErrors.estimasiTiba && <div className="form-error-text">{formErrors.estimasiTiba}</div>}
                   </div>
                 </div>
+                </div>
 
-                <div className="items-container">
+                <div className="items-container vendor-create-shipment__section">
                   <div className="vendor-create-shipment__items-head">
-                    <div>
-                      <h3>Shipment Items</h3>
-                      <p>Set product, total quantity, and quantity per box. Box count is calculated automatically.</p>
+                    <div className="vendor-create-shipment__section-head">
+                      <div className="vendor-create-shipment__step">2</div>
+                      <div>
+                        <h3>Isi shipment</h3>
+                        <p>Tentukan barang, total quantity, dan quantity per box.</p>
+                      </div>
                     </div>
                     <AppButton type="button" variant="secondary" className="vendor-create-shipment__add-btn" onClick={handleAddItem}>
                       <i className="fa-solid fa-plus"></i>
-                      Add item
+                      Tambah item
                     </AppButton>
                   </div>
                   
@@ -1609,33 +1644,33 @@ const VendorDashboard = () => {
                     return (
                     <div className="item-row" key={index}>
                       <div className="form-group" style={{ margin: 0 }}>
-                        <label className="form-label">Item / Product Name</label>
+                        <label className="form-label">Barang</label>
                         <select
                           className="form-control"
                           value={item.product_mode === 'custom' ? 'custom' : item.ID_barang}
                           onChange={(e) => handleProductSelectionChange(index, e.target.value)}
                           disabled={productsLoading}
                         >
-                          <option value="">{productsLoading ? 'Loading products...' : 'Choose product...'}</option>
+                          <option value="">{productsLoading ? 'Memuat produk...' : 'Pilih barang...'}</option>
                           {productOptions.map(product => (
                             <option key={product.ID_barang} value={product.ID_barang}>
                               {product.nama_barang}
                             </option>
                           ))}
-                          <option value="custom">Custom Product</option>
+                          <option value="custom">Barang kustom</option>
                         </select>
                         {item.product_mode === 'custom' && (
                           <input
                             type="text"
                             className="form-control product-custom-input"
-                            placeholder="Enter custom product name..."
+                            placeholder="Masukkan nama barang..."
                             value={item.nama_barang}
                             onChange={(e) => handleItemChange(index, 'nama_barang', e.target.value)}
                           />
                         )}
                       </div>
                       <div className="form-group" style={{ margin: 0 }}>
-                        <label className="form-label">Total Quantity</label>
+                        <label className="form-label">Total quantity</label>
                         <input type="number" className="form-control" value={item.quantity_outbound} onChange={(e) => handleItemChange(index, 'quantity_outbound', e.target.value)} />
                       </div>
                       <div className="form-group" style={{ margin: 0 }}>
@@ -1644,7 +1679,7 @@ const VendorDashboard = () => {
                       </div>
                       <div className="item-row__side">
                         <div className="item-row__summary">
-                          <span>Estimated boxes</span>
+                          <span>Estimasi box</span>
                           <strong>{derivedBoxes || 0}</strong>
                         </div>
                         <button className="btn-icon btn-danger" onClick={() => handleRemoveItem(index)}><i className="fa-solid fa-trash"></i></button>
@@ -1653,12 +1688,40 @@ const VendorDashboard = () => {
                   )})}
                 </div>
 
+                <div className="vendor-create-shipment__section vendor-create-shipment__summary">
+                  <div className="vendor-create-shipment__section-head">
+                    <div className="vendor-create-shipment__step">3</div>
+                    <div>
+                      <h3>Ringkasan sebelum kirim</h3>
+                      <p>Cek ulang jumlah item dan total box sebelum draft atau submit.</p>
+                    </div>
+                  </div>
+                  <div className="vendor-create-shipment__summary-grid">
+                    <div className="vendor-create-shipment__summary-card">
+                      <span>Gudang tujuan</span>
+                      <strong>{warehouses.find((warehouse) => String(warehouse.ID_gudang) === String(targetWarehouseId))?.nama_gudang || 'Belum dipilih'}</strong>
+                    </div>
+                    <div className="vendor-create-shipment__summary-card">
+                      <span>Jadwal</span>
+                      <strong>{waktuKirim && estimasiTiba ? `${waktuKirim} - ${estimasiTiba}` : 'Belum lengkap'}</strong>
+                    </div>
+                    <div className="vendor-create-shipment__summary-card">
+                      <span>Total item</span>
+                      <strong>{items.length}</strong>
+                    </div>
+                    <div className="vendor-create-shipment__summary-card">
+                      <span>Total estimasi box</span>
+                      <strong>{items.reduce((total, item) => total + (Number(item.quantity_per_box) > 0 ? Math.ceil((Number(item.quantity_outbound) || 0) / Number(item.quantity_per_box)) : 0), 0)}</strong>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="form-actions vendor-create-shipment__actions">
                   <AppButton type="button" variant="secondary" onClick={() => handleSubmitShipment(false)} disabled={submitLoading}>
-                    Save as draft
+                    Simpan draft
                   </AppButton>
                   <AppButton type="button" onClick={() => handleSubmitShipment(true)} disabled={submitLoading}>
-                    <i className="fa-solid fa-paper-plane" style={{ marginRight: '8px' }}></i> {submitLoading ? 'Processing...' : 'Submit & Generate QR'}
+                    <i className="fa-solid fa-paper-plane" style={{ marginRight: '8px' }}></i> {submitLoading ? 'Memproses...' : 'Submit & Buat QR'}
                   </AppButton>
                 </div>
               </div>
@@ -1851,12 +1914,20 @@ const VendorDashboard = () => {
 
       <ConfirmModal
         open={logoutConfirmOpen}
-        title="Sign out?"
-        message="You will need to sign in again before continuing shipment and QR tasks."
-        cancelLabel="Stay here"
-        confirmLabel="Sign out"
+        title="Keluar dari akun vendor?"
+        message="Kamu perlu login lagi untuk lanjut mengelola shipment dan QR."
+        cancelLabel="Tetap di sini"
+        confirmLabel="Keluar"
         onCancel={() => setLogoutConfirmOpen(false)}
         onConfirm={handleLogout}
+      />
+
+      <StatusModal
+        open={statusModal.open}
+        type={statusModal.type}
+        title={statusModal.title}
+        message={statusModal.message}
+        onClose={() => setStatusModal((prev) => ({ ...prev, open: false }))}
       />
 
       {/* Vendor Report Modal */}
@@ -1940,69 +2011,88 @@ const VendorDashboard = () => {
       )}
 
       {/* QR Code Modal */}
-      {showQRModal && (
-        <div className="modal-overlay" style={{
-          position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', 
-          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
-        }}>
-          <div className="modal-content" style={{
-            backgroundColor: 'white', padding: '24px', borderRadius: '12px', width: '90%', maxWidth: '600px', maxHeight: '90vh', overflowY: 'auto'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-dark)' }}>QR Codes for Shipment {selectedShipmentId}</h2>
-              <button onClick={() => setShowQRModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#64748b' }}>&times;</button>
+      <BaseModalShell open={showQRModal} onClose={() => setShowQRModal(false)} panelClassName="vendor-qr-modal-shell">
+        <div className="vendor-qr-modal">
+          <div className="vendor-qr-modal__header">
+            <div>
+              <p className="vendor-section-kicker">QR shipment</p>
+              <h2>QR untuk shipment {selectedShipmentId || '-'}</h2>
+              <p>Unduh QR per box untuk kebutuhan kirim dan verifikasi di gudang tujuan.</p>
             </div>
-            
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '20px' }}>
-              {qrLoading ? (
-                <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '32px 20px', color: '#64748b' }}>
-                  <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '2rem', marginBottom: '16px' }}></i>
-                  <p>Loading QR codes and tokens...</p>
-                </div>
-              ) : qrTokens.map((token, idx) => (
-                <div key={idx} className="qr-token-card">
-                  <div style={{ background: 'white', padding: '10px', display: 'inline-block', borderRadius: '8px', marginBottom: '12px' }}>
-                    <QRCodeSVG id={`qr-svg-${token.ID_outbound_detail || idx}`} value={token.qr_token || 'QR_TOKEN_NOT_AVAILABLE'} size={150} />
-                  </div>
-                  <div className="qr-token-meta">
-                    <div className="qr-token-product">{getQrProductName(token)}</div>
-                    <div className="qr-token-caption">
-                      <span>{token.box_code || (token.box_sequence ? `Box ${token.box_sequence}` : 'Box')}</span>
-                      <span>{`Qty ${token.expected_qty_in_box ?? '-'}`}</span>
-                    </div>
-                  </div>
-                  <div className="qr-token-section">
-                    <div className="qr-token-label">QR Token</div>
-                    <div className="qr-token-value">{token.qr_token || 'Token not available yet'}</div>
-                    <button
-                      type="button"
-                      className="btn btn-outline qr-copy-btn"
-                      disabled={!token.qr_token}
-                      onClick={() => handleCopyQrToken(token.qr_token)}
-                    >
-                      <i className="fa-regular fa-copy"></i> Copy Token
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-primary qr-copy-btn"
-                      style={{ marginTop: '10px' }}
-                      disabled={!token.qr_token}
-                      onClick={() => handleDownloadQr(token, idx)}
-                    >
-                      <i className="fa-solid fa-download"></i> Download QR
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {!qrLoading && qrTokens.length === 0 && (
-                <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '20px', color: '#64748b' }}>
-                  No QR tokens were returned for this shipment yet. If the shipment was already submitted, this likely needs backend verification.
-                </div>
-              )}
+            <button type="button" className="vendor-qr-modal__close" onClick={() => setShowQRModal(false)} aria-label="Tutup modal QR">
+              <i className="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+
+          <div className="vendor-qr-modal__summary">
+            <div className="vendor-qr-modal__summary-card">
+              <span>Total box</span>
+              <strong>{qrTokens.length}</strong>
+            </div>
+            <div className="vendor-qr-modal__summary-card">
+              <span>QR siap diunduh</span>
+              <strong>{qrTokens.filter((token) => Boolean(token.qr_token)).length}</strong>
             </div>
           </div>
+
+          <div className="vendor-qr-modal__body">
+            {qrLoading ? (
+              <div className="vendor-qr-modal__empty">
+                <i className="fa-solid fa-spinner fa-spin"></i>
+                <p>Memuat QR dan token shipment...</p>
+              </div>
+            ) : qrTokens.length > 0 ? (
+              <div className="vendor-qr-grid">
+                {qrTokens.map((token, idx) => (
+                  <div key={idx} className="qr-token-card">
+                    <div className="qr-token-visual">
+                      <QRCodeSVG id={`qr-svg-${token.ID_outbound_detail || idx}`} value={token.qr_token || 'QR_TOKEN_NOT_AVAILABLE'} size={164} />
+                    </div>
+                    <div className="qr-token-meta">
+                      <div className="qr-token-product">{getQrProductName(token)}</div>
+                      <div className="qr-token-caption">
+                        <span>{token.box_code || (token.box_sequence ? `Box ${token.box_sequence}` : 'Box')}</span>
+                        <span>{`Qty ${token.expected_qty_in_box ?? '-'}`}</span>
+                      </div>
+                    </div>
+                    <div className="qr-token-section">
+                      <div className="qr-token-label">QR token</div>
+                      <div className="qr-token-value">{token.qr_token || 'Token belum tersedia'}</div>
+                    </div>
+                    <div className="qr-token-actions">
+                      <AppButton
+                        type="button"
+                        variant="secondary"
+                        className="qr-copy-btn"
+                        disabled={!token.qr_token}
+                        onClick={() => handleCopyQrToken(token.qr_token)}
+                      >
+                        <i className="fa-regular fa-copy"></i>
+                        Copy token
+                      </AppButton>
+                      <AppButton
+                        type="button"
+                        className="qr-copy-btn"
+                        disabled={!token.qr_token}
+                        onClick={() => handleDownloadQr(token, idx)}
+                      >
+                        <i className="fa-solid fa-download"></i>
+                        Download QR
+                      </AppButton>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="vendor-qr-modal__empty">
+                <i className="fa-solid fa-qrcode"></i>
+                <p>Belum ada QR yang tersedia untuk shipment ini.</p>
+                <span>Kalau shipment sudah disubmit, kemungkinan QR masih menunggu sinkronisasi backend.</span>
+              </div>
+            )}
+          </div>
         </div>
-      )}
+      </BaseModalShell>
 
       {/* Shipment Details Modal */}
       {showDetailsModal && (
