@@ -1,7 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildManagerDashboardHeroMetrics,
+  buildManagerDashboardPrimaryCards,
   buildRecentShipmentActivity,
+  buildVendorDashboardHeroMetrics,
+  buildVendorDashboardPrimaryCards,
   buildShipmentChartSegments,
   buildVendorSummaryCards,
   buildQrDownloadLabel,
@@ -13,6 +17,9 @@ import {
   normalizeAnalyticsResponse,
   buildTrendChartData,
   buildDiscrepancyByPartRows,
+  buildScheduleRiskCards,
+  buildActionQueueCards,
+  buildTopDiscrepancyPartHighlights,
   summarizeAuditEvidence,
 } from '../src/utils/dashboardLogic.js';
 
@@ -34,6 +41,163 @@ describe('validateOutboundSchedule', () => {
   it('accepts expected arrival on the same date or after dispatch date', () => {
     assert.deepEqual(validateOutboundSchedule('2026-05-30', '2026-05-30'), { valid: true });
     assert.deepEqual(validateOutboundSchedule('2026-05-30', '2026-05-31'), { valid: true });
+  });
+});
+
+describe('buildVendorDashboardPrimaryCards', () => {
+  it('builds top KPI cards with QR readiness as the fourth primary metric', () => {
+    const cards = buildVendorDashboardPrimaryCards(
+      { total: 12, shipping: 5, delivered: 6, draft: 1, discrepancy: 3 },
+      { shipments_ready: 4, shipments_not_ready: 2, total_qr: 20, ready_qr: 16 },
+    );
+
+    assert.deepEqual(cards, [
+      {
+        key: 'total',
+        actionKey: 'total',
+        label: 'Semua Pengiriman',
+        value: 12,
+        description: 'Total pengiriman yang sedang Anda monitor.',
+        tone: 'blue',
+      },
+      {
+        key: 'shipping',
+        actionKey: 'shipping',
+        label: 'Sedang Dikirim',
+        value: 5,
+        description: 'Pengiriman sudah dilepas dan masih berjalan.',
+        tone: 'yellow',
+      },
+      {
+        key: 'delivered',
+        actionKey: 'delivered',
+        label: 'Sudah Diterima',
+        value: 6,
+        description: 'Pengiriman sudah tiba dan tercatat diterima.',
+        tone: 'green',
+      },
+      {
+        key: 'qr_ready',
+        actionKey: 'total',
+        label: 'QR Siap',
+        value: 4,
+        description: 'Shipment non-draft yang QR-nya sudah lengkap.',
+        tone: 'navy',
+      },
+    ]);
+  });
+});
+
+describe('buildVendorDashboardHeroMetrics', () => {
+  it('builds hero chips from analytics snapshot and discrepancy totals', () => {
+    const metrics = buildVendorDashboardHeroMetrics({
+      overviewCounts: { delivered: 8 },
+      analytics: {
+        trend_by_date: [
+          {
+            date: '2026-06-02',
+            shipments_total: 10,
+            shipments_currently_verified: 7,
+            shipments_with_discrepancy: 2,
+            pending_review: 3,
+          },
+        ],
+        action_queue: { pending_discrepancy_review: 4 },
+      },
+      discrepancyAlert: { total_non_match: 5 },
+    });
+
+    assert.deepEqual(metrics, [
+      { key: 'verified', label: 'Verified', value: 7, tone: 'success' },
+      { key: 'discrepancy', label: 'With discrepancy', value: 5, tone: 'danger' },
+      { key: 'pending_review', label: 'Pending review', value: 3, tone: 'warning' },
+    ]);
+  });
+
+  it('falls back safely when analytics trend is unavailable', () => {
+    const metrics = buildVendorDashboardHeroMetrics({
+      overviewCounts: { delivered: 4 },
+      analytics: {
+        trend_by_date: [],
+        action_queue: { pending_discrepancy_review: 2 },
+      },
+      discrepancyAlert: { total_non_match: 1 },
+    });
+
+    assert.deepEqual(metrics, [
+      { key: 'verified', label: 'Verified', value: 4, tone: 'success' },
+      { key: 'discrepancy', label: 'With discrepancy', value: 1, tone: 'danger' },
+      { key: 'pending_review', label: 'Pending review', value: 2, tone: 'warning' },
+    ]);
+  });
+});
+
+describe('buildManagerDashboardPrimaryCards', () => {
+  it('builds manager top KPI cards with pending review as the fourth metric', () => {
+    const cards = buildManagerDashboardPrimaryCards(
+      { total: 20, shipping: 6, delivered: 11, discrepancy: 4, draft: 3 },
+      5,
+    );
+
+    assert.deepEqual(cards, [
+      {
+        key: 'total',
+        actionKey: 'total',
+        label: 'Total Shipments',
+        value: 20,
+        description: 'Live outbound records',
+        tone: 'blue',
+      },
+      {
+        key: 'shipping',
+        actionKey: 'shipping',
+        label: 'Shipping',
+        value: 6,
+        description: 'Submitted or in transit',
+        tone: 'info',
+      },
+      {
+        key: 'delivered',
+        actionKey: 'delivered',
+        label: 'Delivered',
+        value: 11,
+        description: 'Arrived, verified, or delivered',
+        tone: 'success',
+      },
+      {
+        key: 'pending_review',
+        actionKey: 'pending',
+        label: 'Pending Review',
+        value: 5,
+        description: 'Discrepancies still waiting manager action',
+        tone: 'warning',
+      },
+    ]);
+  });
+});
+
+describe('buildManagerDashboardHeroMetrics', () => {
+  it('builds manager hero metrics from analytics snapshot with safe fallbacks', () => {
+    const metrics = buildManagerDashboardHeroMetrics({
+      shipmentCounts: { discrepancy: 4, delivered: 10 },
+      pendingCount: 3,
+      analytics: {
+        trend_by_date: [
+          {
+            date: '2026-06-02',
+            shipments_currently_verified: 8,
+            shipments_with_discrepancy: 2,
+            pending_review: 3,
+          },
+        ],
+      },
+    });
+
+    assert.deepEqual(metrics, [
+      { key: 'verified', label: 'Verified', value: 8, tone: 'success' },
+      { key: 'discrepancy', label: 'With discrepancy', value: 4, tone: 'danger' },
+      { key: 'pending_review', label: 'Pending review', value: 3, tone: 'warning' },
+    ]);
   });
 });
 
@@ -307,5 +471,61 @@ describe('summarizeAuditEvidence', () => {
     });
     assert.equal(result.photoPct, 0);
     assert.equal(result.locationPct, 0);
+  });
+});
+
+describe('buildScheduleRiskCards', () => {
+  it('maps schedule risk fields into business-facing cards', () => {
+    const cards = buildScheduleRiskCards({
+      dispatch_today: 2,
+      arrival_today: 3,
+      overdue_shipping: 1,
+      arrived_awaiting_verification: 4,
+      missing_schedule_data: 0,
+    });
+
+    assert.deepEqual(cards.map((card) => ({
+      key: card.key,
+      label: card.label,
+      value: card.value,
+    })), [
+      { key: 'dispatch_today', label: 'Berangkat Hari Ini', value: 2 },
+      { key: 'arrival_today', label: 'Tiba Hari Ini', value: 3 },
+      { key: 'overdue_shipping', label: 'Melewati Estimasi', value: 1 },
+      { key: 'arrived_awaiting_verification', label: 'Menunggu Verifikasi', value: 4 },
+      { key: 'missing_schedule_data', label: 'Jadwal Belum Lengkap', value: 0 },
+    ]);
+  });
+});
+
+describe('buildActionQueueCards', () => {
+  it('maps action queue fields into operational priorities', () => {
+    const cards = buildActionQueueCards({
+      draft_pending_submit: 2,
+      submitted_qr_not_ready: 1,
+      pending_discrepancy_review: 3,
+    });
+
+    assert.deepEqual(cards.map((card) => ({
+      key: card.key,
+      label: card.label,
+      value: card.value,
+    })), [
+      { key: 'draft_pending_submit', label: 'Draft Belum Dikirim', value: 2 },
+      { key: 'submitted_qr_not_ready', label: 'QR Belum Siap', value: 1 },
+      { key: 'pending_discrepancy_review', label: 'Selisih Menunggu Review', value: 3 },
+    ]);
+  });
+});
+
+describe('buildTopDiscrepancyPartHighlights', () => {
+  it('returns the highest discrepancy parts first and respects limit', () => {
+    const rows = buildTopDiscrepancyPartHighlights([
+      { part_id: 1, part_name: 'A', total_non_match: 1, mismatch: 1, missing: 0, over: 0 },
+      { part_id: 2, part_name: 'B', total_non_match: 3, mismatch: 2, missing: 1, over: 0 },
+      { part_id: 3, part_name: 'C', total_non_match: 2, mismatch: 1, missing: 1, over: 0 },
+    ], 2);
+
+    assert.deepEqual(rows.map((row) => row.part_id), [2, 3]);
   });
 });

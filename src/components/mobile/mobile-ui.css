@@ -1,0 +1,262 @@
+.workspace-header {
+  align-items: center;
+  background: #0d55f2;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 10px;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.workspace-header__copy {
+  min-width: 0;
+}
+
+.workspace-header__scope {
+  color: rgba(255, 255, 255, 0.74);
+  display: block;
+  font-size: 0.72rem;
+  margin-bottom: 3px;
+}
+
+.workspace-header__copy h1 {
+  color: #ffffff;
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: -0.05em;
+  line-height: 1.05;
+  margin: 0;
+}
+
+.workspace-header__action {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.14);
+  border: none;
+  border-radius: 12px;
+  color: #ffffff;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  justify-content: center;
+  min-height: 34px;
+  min-width: 34px;
+  padding: 0;
+  width: 34px;
+}
+
+.workspace-header__action i {
+  font-size: 0.82rem;
+}
+
+.mobile-bottom-nav {
+  align-items: center;
+  background: #ffffff;
+  border-radius: 999px;
+  bottom: 18px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, 1fr);
+  left: 50%;
+  min-width: 188px;
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+  position: fixed;
+  transform: translateX(-50%);
+  width: max-content;
+  z-index: 30;
+}
+
+.mobile-bottom-nav__item {
+  align-items: center;
+  background: #f4f7fb;
+  border: none;
+  border-radius: 999px;
+  color: #7a879c;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  font-weight: 700;
+  gap: 0;
+  height: 42px;
+  justify-content: center;
+  padding: 0;
+  width: 42px;
+}
+
+.mobile-bottom-nav__item.is-prominent {
+  background: #0d55f2;
+  border-radius: 999px;
+  color: #ffffff;
+  margin-top: -18px;
+  height: 56px;
+  min-width: 56px;
+  position: relative;
+  width: 56px;
+}
+
+.mobile-bottom-nav__item.is-prominent i {
+  font-size: 1.22rem;
+}
+
+.mobile-bottom-nav__item.is-prominent span {
+  display: none;
+}
+
+.mobile-bottom-nav__item i {
+  font-size: 0.96rem;
+}
+
+.mobile-bottom-nav__item.is-active {
+  background: #eef3fb;
+  color: #0d55f2;
+}
+
+.mobile-bottom-nav__item span {
+  display: none;
+}
+
+.section-card {
+  border-radius: 24px;
+  overflow: hidden;
+}
+
+.section-card__header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 14px 0;
+}
+
+.section-card__header h2 {
+  color: #142033;
+  font-size: 0.94rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  margin: 0;
+}
+
+.section-card__body {
+  padding: 14px;
+}
+
+.empty-state {
+  align-items: center;
+  color: #68768c;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+  min-height: 180px;
+  text-align: center;
+}
+
+.empty-state i {
+  color: #b6c1d2;
+  font-size: 2rem;
+}
+
+.empty-state strong {
+  color: #1b2638;
+  font-size: 1rem;
+}
+
+.status-badge {
+  align-items: center;
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 700;
+  min-height: 28px;
+  padding: 0 10px;
+}
+
+.status-badge--success {
+  background: #e8faf0;
+  color: #177245;
+}
+
+.status-badge--warning {
+  background: #fff5df;
+  color: #9b6200;
+}
+
+.status-badge--danger {
+  background: #fff0f2;
+  color: #c63756;
+}
+
+.status-badge--neutral {
+  background: #eef3fb;
+  color: #52627a;
+}
+
+.feedback-banner {
+  border-radius: 18px;
+  display: grid;
+  gap: 4px;
+  margin: 0 20px 16px;
+  padding: 14px 16px;
+}
+
+.feedback-banner strong {
+  font-size: 0.92rem;
+}
+
+.feedback-banner span {
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.feedback-banner--success {
+  background: #e9fbf1;
+  color: #177245;
+}
+
+.feedback-banner--error {
+  background: #fff1f3;
+  color: #c63756;
+}
+
+.progress-block {
+  display: grid;
+  gap: 10px;
+}
+
+.progress-block__label {
+  align-items: center;
+  color: #65738a;
+  display: flex;
+  font-size: 0.82rem;
+  justify-content: space-between;
+}
+
+.progress-block__label strong {
+  color: #142033;
+  font-size: 0.84rem;
+}
+
+.progress-bar {
+  background: #e8eef8;
+  border-radius: 999px;
+  height: 10px;
+  overflow: hidden;
+}
+
+.progress-bar__fill {
+  background: #0d55f2;
+  border-radius: inherit;
+  height: 100%;
+}
+
+@media (min-width: 901px) {
+  .workspace-header {
+    padding: 16px 18px 12px;
+  }
+
+  .feedback-banner {
+    margin-left: 24px;
+    margin-right: 24px;
+  }
+}

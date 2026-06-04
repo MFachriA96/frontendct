@@ -1,0 +1,281 @@
+.app-shell-sidebar {
+  background: #0d55f2;
+  color: #ffffff;
+  display: flex;
+  flex: 0 0 272px;
+  flex-direction: column;
+  gap: 22px;
+  height: 100vh;
+  left: 0;
+  overflow: hidden;
+  overflow-x: hidden;
+  padding: 24px 16px;
+  position: sticky;
+  top: 0;
+  transition: width 0.24s ease, flex-basis 0.24s ease, padding 0.24s ease;
+  width: 272px;
+}
+
+.app-shell-sidebar.is-collapsed {
+  flex-basis: 96px;
+  padding-inline: 12px;
+  width: 96px;
+}
+
+.app-shell-sidebar__brand {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.app-shell-sidebar__brand-trigger {
+  align-items: center;
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  gap: 14px;
+  min-width: 0;
+  padding: 0;
+  text-align: left;
+}
+
+.app-shell-sidebar__brand-box {
+  align-items: center;
+  color: #ffffff;
+  display: flex;
+  font-size: 1.18rem;
+  height: 44px;
+  justify-content: center;
+  position: relative;
+  width: 44px;
+}
+
+.app-shell-sidebar__brand-icon {
+  left: 50%;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.app-shell-sidebar__brand-icon--hover {
+  opacity: 0;
+  transform: translate(-42%, -50%);
+}
+
+.app-shell-sidebar__brand-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.app-shell-sidebar__brand-copy strong {
+  color: #ffffff;
+  font-size: 1.32rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+.app-shell-sidebar__brand-copy span {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.app-shell-sidebar__toggle {
+  align-items: center;
+  background: transparent;
+  border: none;
+  border-radius: 12px;
+  color: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 36px;
+  justify-content: center;
+  transition: color 0.18s ease, transform 0.18s ease;
+  width: 36px;
+}
+
+.app-shell-sidebar__toggle:hover {
+  color: #ffffff;
+  transform: translateX(2px);
+}
+
+.app-shell-sidebar__nav {
+  display: grid;
+  gap: 18px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.app-shell-sidebar__nav::-webkit-scrollbar {
+  display: none;
+}
+
+.app-shell-sidebar__section {
+  display: grid;
+  gap: 10px;
+}
+
+.app-shell-sidebar__section-label {
+  color: rgba(255, 255, 255, 0.54);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+  padding: 0 12px;
+  transition: opacity 0.16s ease;
+}
+
+.app-shell-sidebar__items {
+  display: grid;
+  gap: 6px;
+}
+
+.app-shell-sidebar__item,
+.app-shell-sidebar__signout {
+  align-items: center;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.76);
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  gap: 12px;
+  min-height: 48px;
+  padding: 0 14px;
+  position: relative;
+  text-align: left;
+  transition: color 0.18s ease, transform 0.18s ease;
+  width: 100%;
+}
+
+.app-shell-sidebar__item span,
+.app-shell-sidebar__signout span {
+  position: relative;
+  white-space: nowrap;
+}
+
+.app-shell-sidebar__item span::after {
+  background: #ffffff;
+  border-radius: 999px;
+  bottom: -8px;
+  content: '';
+  height: 2px;
+  left: 0;
+  opacity: 0;
+  position: absolute;
+  transform: scaleX(0.15);
+  transform-origin: left center;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  width: 100%;
+}
+
+.app-shell-sidebar__item i,
+.app-shell-sidebar__signout i {
+  font-size: 1rem;
+  text-align: center;
+  width: 18px;
+}
+
+.app-shell-sidebar__item:hover,
+.app-shell-sidebar__signout:hover {
+  color: #ffffff;
+  transform: translateX(4px);
+}
+
+.app-shell-sidebar__item.is-active {
+  color: #ffffff;
+  transform: translateX(6px);
+}
+
+.app-shell-sidebar__item:hover span::after,
+.app-shell-sidebar__item.is-active span::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.app-shell-sidebar__badge {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  color: #ffffff;
+  display: inline-flex;
+  font-size: 0.74rem;
+  font-weight: 800;
+  justify-content: center;
+  margin-left: auto;
+  min-width: 24px;
+  padding: 0 8px;
+}
+
+.app-shell-sidebar__signout {
+  margin-top: auto;
+}
+
+.app-shell-sidebar.is-collapsed .app-shell-sidebar__brand {
+  justify-content: center;
+}
+
+.app-shell-sidebar.is-collapsed .app-shell-sidebar__brand-trigger:hover .app-shell-sidebar__brand-icon--default {
+  opacity: 0;
+  transform: translate(-58%, -50%);
+}
+
+.app-shell-sidebar.is-collapsed .app-shell-sidebar__brand-trigger:hover .app-shell-sidebar__brand-icon--hover {
+  opacity: 1;
+  transform: translate(-50%, -50%);
+}
+
+.app-shell-sidebar.is-collapsed .app-shell-sidebar__brand-copy,
+.app-shell-sidebar.is-collapsed .app-shell-sidebar__section-label,
+.app-shell-sidebar.is-collapsed .app-shell-sidebar__item span,
+.app-shell-sidebar.is-collapsed .app-shell-sidebar__signout span,
+.app-shell-sidebar.is-collapsed .app-shell-sidebar__badge {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-6px);
+  width: 0;
+}
+
+.app-shell-sidebar.is-collapsed .app-shell-sidebar__toggle {
+  display: none;
+}
+
+.app-shell-sidebar.is-collapsed .app-shell-sidebar__items {
+  justify-items: center;
+}
+
+.app-shell-sidebar.is-collapsed .app-shell-sidebar__item,
+.app-shell-sidebar.is-collapsed .app-shell-sidebar__signout {
+  justify-content: center;
+  padding-inline: 0;
+  transform: none;
+}
+
+.app-shell-sidebar.is-collapsed .app-shell-sidebar__item:hover,
+.app-shell-sidebar.is-collapsed .app-shell-sidebar__signout:hover,
+.app-shell-sidebar.is-collapsed .app-shell-sidebar__item.is-active {
+  transform: none;
+}
+
+.app-shell-sidebar.is-collapsed .app-shell-sidebar__item span::after {
+  display: none;
+}
+
+@media (max-width: 1100px) {
+  .app-shell-sidebar {
+    flex-basis: 248px;
+    padding: 22px 14px;
+    width: 248px;
+  }
+}

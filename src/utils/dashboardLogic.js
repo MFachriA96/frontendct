@@ -139,10 +139,11 @@ export const getQrProductName = (token = {}) => (
 
 export const buildQrDownloadLabel = (token = {}) => {
   const productName = getQrProductName(token);
-  const detailId = token.ID_outbound_detail || token.outbound_detail?.ID_outbound_detail || '-';
+  const boxCode = token.box_code || (token.box_sequence ? `Box ${token.box_sequence}` : 'Box');
+  const quantityInBox = token.expected_qty_in_box ?? '-';
   const qrToken = token.qr_token || 'Token not available';
 
-  return `${productName} | Detail #${detailId} | Token: ${qrToken}`;
+  return `${productName} | ${boxCode} | Qty ${quantityInBox} | Token: ${qrToken}`;
 };
 
 export const buildShipmentChartSegments = (shipments = []) => {
@@ -184,6 +185,146 @@ export const buildVendorSummaryCards = (shipments = []) => {
       value: counts.discrepancy,
       description: 'Ada selisih yang perlu ditinjau lebih lanjut.',
       tone: 'red',
+    },
+  ];
+};
+
+export const buildVendorDashboardPrimaryCards = (shipments = [], qrReadiness = {}) => {
+  const counts = resolveShipmentCountsInput(shipments);
+
+  return [
+    {
+      key: 'total',
+      actionKey: 'total',
+      label: 'Semua Pengiriman',
+      value: counts.total,
+      description: 'Total pengiriman yang sedang Anda monitor.',
+      tone: 'blue',
+    },
+    {
+      key: 'shipping',
+      actionKey: 'shipping',
+      label: 'Sedang Dikirim',
+      value: counts.shipping,
+      description: 'Pengiriman sudah dilepas dan masih berjalan.',
+      tone: 'yellow',
+    },
+    {
+      key: 'delivered',
+      actionKey: 'delivered',
+      label: 'Sudah Diterima',
+      value: counts.delivered,
+      description: 'Pengiriman sudah tiba dan tercatat diterima.',
+      tone: 'green',
+    },
+    {
+      key: 'qr_ready',
+      actionKey: 'total',
+      label: 'QR Siap',
+      value: Number(qrReadiness.shipments_ready ?? 0),
+      description: 'Shipment non-draft yang QR-nya sudah lengkap.',
+      tone: 'navy',
+    },
+  ];
+};
+
+export const buildVendorDashboardHeroMetrics = ({
+  overviewCounts = {},
+  analytics = {},
+  discrepancyAlert = {},
+} = {}) => {
+  const latestTrend = Array.isArray(analytics?.trend_by_date) && analytics.trend_by_date.length > 0
+    ? analytics.trend_by_date[0]
+    : null;
+
+  return [
+    {
+      key: 'verified',
+      label: 'Verified',
+      value: Number(latestTrend?.shipments_currently_verified ?? overviewCounts.delivered ?? 0),
+      tone: 'success',
+    },
+    {
+      key: 'discrepancy',
+      label: 'With discrepancy',
+      value: Number(discrepancyAlert.total_non_match ?? latestTrend?.shipments_with_discrepancy ?? 0),
+      tone: 'danger',
+    },
+    {
+      key: 'pending_review',
+      label: 'Pending review',
+      value: Number(latestTrend?.pending_review ?? analytics?.action_queue?.pending_discrepancy_review ?? 0),
+      tone: 'warning',
+    },
+  ];
+};
+
+export const buildManagerDashboardPrimaryCards = (shipments = [], pendingReview = 0) => {
+  const counts = resolveShipmentCountsInput(shipments);
+
+  return [
+    {
+      key: 'total',
+      actionKey: 'total',
+      label: 'Total Shipments',
+      value: counts.total,
+      description: 'Live outbound records',
+      tone: 'blue',
+    },
+    {
+      key: 'shipping',
+      actionKey: 'shipping',
+      label: 'Shipping',
+      value: counts.shipping,
+      description: 'Submitted or in transit',
+      tone: 'info',
+    },
+    {
+      key: 'delivered',
+      actionKey: 'delivered',
+      label: 'Delivered',
+      value: counts.delivered,
+      description: 'Arrived, verified, or delivered',
+      tone: 'success',
+    },
+    {
+      key: 'pending_review',
+      actionKey: 'pending',
+      label: 'Pending Review',
+      value: Number(pendingReview ?? 0),
+      description: 'Discrepancies still waiting manager action',
+      tone: 'warning',
+    },
+  ];
+};
+
+export const buildManagerDashboardHeroMetrics = ({
+  shipmentCounts = {},
+  pendingCount = 0,
+  analytics = {},
+} = {}) => {
+  const latestTrend = Array.isArray(analytics?.trend_by_date) && analytics.trend_by_date.length > 0
+    ? analytics.trend_by_date[0]
+    : null;
+
+  return [
+    {
+      key: 'verified',
+      label: 'Verified',
+      value: Number(latestTrend?.shipments_currently_verified ?? shipmentCounts.delivered ?? 0),
+      tone: 'success',
+    },
+    {
+      key: 'discrepancy',
+      label: 'With discrepancy',
+      value: Number(shipmentCounts.discrepancy ?? latestTrend?.shipments_with_discrepancy ?? 0),
+      tone: 'danger',
+    },
+    {
+      key: 'pending_review',
+      label: 'Pending review',
+      value: Number(latestTrend?.pending_review ?? pendingCount ?? 0),
+      tone: 'warning',
     },
   ];
 };
@@ -309,6 +450,63 @@ export const buildTrendChartData = (trendByDate = []) => {
 
 export const buildDiscrepancyByPartRows = (discrepancyByPart = []) =>
   [...discrepancyByPart].sort((a, b) => (b.total_non_match || 0) - (a.total_non_match || 0));
+
+export const buildTopDiscrepancyPartHighlights = (discrepancyByPart = [], limit = 3) =>
+  buildDiscrepancyByPartRows(discrepancyByPart).slice(0, limit);
+
+export const buildScheduleRiskCards = (scheduleRisk = {}) => ([
+  {
+    key: 'dispatch_today',
+    label: 'Berangkat Hari Ini',
+    value: Number(scheduleRisk.dispatch_today ?? 0),
+    tone: 'info',
+  },
+  {
+    key: 'arrival_today',
+    label: 'Tiba Hari Ini',
+    value: Number(scheduleRisk.arrival_today ?? 0),
+    tone: 'success',
+  },
+  {
+    key: 'overdue_shipping',
+    label: 'Melewati Estimasi',
+    value: Number(scheduleRisk.overdue_shipping ?? 0),
+    tone: 'danger',
+  },
+  {
+    key: 'arrived_awaiting_verification',
+    label: 'Menunggu Verifikasi',
+    value: Number(scheduleRisk.arrived_awaiting_verification ?? 0),
+    tone: 'warning',
+  },
+  {
+    key: 'missing_schedule_data',
+    label: 'Jadwal Belum Lengkap',
+    value: Number(scheduleRisk.missing_schedule_data ?? 0),
+    tone: 'muted',
+  },
+]);
+
+export const buildActionQueueCards = (actionQueue = {}) => ([
+  {
+    key: 'draft_pending_submit',
+    label: 'Draft Belum Dikirim',
+    value: Number(actionQueue.draft_pending_submit ?? 0),
+    tone: 'warning',
+  },
+  {
+    key: 'submitted_qr_not_ready',
+    label: 'QR Belum Siap',
+    value: Number(actionQueue.submitted_qr_not_ready ?? 0),
+    tone: 'info',
+  },
+  {
+    key: 'pending_discrepancy_review',
+    label: 'Selisih Menunggu Review',
+    value: Number(actionQueue.pending_discrepancy_review ?? 0),
+    tone: 'danger',
+  },
+]);
 
 export const summarizeAuditEvidence = (summary = {}) => {
   const withPhoto = Number(summary.shipments_with_photo ?? 0);

@@ -1,36 +1,82 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import BottomNav from '../components/mobile/BottomNav';
+import EmptyState from '../components/mobile/EmptyState';
+import FeedbackBanner from '../components/mobile/FeedbackBanner';
+import ProgressBar from '../components/mobile/ProgressBar';
+import SectionCard from '../components/mobile/SectionCard';
+import StatusBadge from '../components/mobile/StatusBadge';
+import WorkspaceHeader from '../components/mobile/WorkspaceHeader';
+import AppButton from '../components/ui/AppButton';
+import ConfirmModal from '../components/ui/ConfirmModal';
 import { API_BASE_URL } from '../config/api';
+import { getAssignedWarehouseId } from '../utils/userAccess';
+import { buildReceivingProgress, buildVerifyBoxPayload } from '../utils/receivingWorkspace';
 import './ScanOfficerDashboard.css';
 
+const normalizeListResponse = (payload) => {
+  const data = payload?.data;
+  return Array.isArray(data) ? data : (data?.data || []);
+};
+
+const formatDateTime = (value) => (value ? new Date(value).toLocaleString() : '-');
+
+const formatStatusLabel = (value, fallback = 'Unknown') => String(value || fallback).replace(/_/g, ' ');
+
+const getStatusTone = (value) => {
+  const status = String(value || '').toLowerCase();
+
+  if (['verified', 'selesai', 'match', 'normal'].includes(status)) {
+    return 'success';
+  }
+
+  if (['issue_flagged', 'mismatch', 'missing', 'over', 'damaged', 'suspect'].includes(status)) {
+    return 'danger';
+  }
+
+  if (['submitted', 'arrived', 'waiting_scan', 'scanned', 'scan_in_progress', 'menunggu'].includes(status)) {
+    return 'warning';
+  }
+
+  return 'neutral';
+};
+
+const navItems = [
+  { value: 'queue', label: 'Queue', icon: 'fa-solid fa-list-check' },
+  { value: 'receive', label: 'Scan', icon: 'fa-solid fa-qrcode' },
+  { value: 'history', label: 'History', icon: 'fa-solid fa-clock-rotate-left' },
+];
+
 const ScanOfficerDashboard = () => {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState('queue');
   const [user] = useState(() => {
     const userData = localStorage.getItem('user');
     return userData ? JSON.parse(userData) : null;
   });
   const [loading, setLoading] = useState(false);
-
-  // Stats & Data
-  const [inbounds, setInbounds] = useState([]);
-  const [stats, setStats] = useState({ scannedToday: 0, pendingManual: 0, activeDiscrepancies: 0, cleared: 0 });
-
-  // Scan State
+  const [queueLoading, setQueueLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [queueShipments, setQueueShipments] = useState([]);
+  const [historyInbounds, setHistoryInbounds] = useState([]);
+  const [activeShipment, setActiveShipment] = useState(null);
+  const [activeInbound, setActiveInbound] = useState(null);
+  const [activeBox, setActiveBox] = useState(null);
+  const [verificationForm, setVerificationForm] = useState({
+    actualQty: '',
+    conditionStatus: 'normal',
+    notes: '',
+  });
   const [scanMethod, setScanMethod] = useState('manual');
   const [qrToken, setQrToken] = useState('');
-  const [idGudang, setIdGudang] = useState(1);
-  const [namaPenerima, setNamaPenerima] = useState(user?.nama || 'Officer');
+  const [idGudang] = useState(() => getAssignedWarehouseId(user, ''));
   const [scanFeedback, setScanFeedback] = useState(null);
   const [cameraError, setCameraError] = useState('');
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraSuccessOverlay, setCameraSuccessOverlay] = useState(null);
-
-  // Manual verification state
-  const [manualInboundId, setManualInboundId] = useState('');
-  const [selectedInbound, setSelectedInbound] = useState(null);
-  const [manualInputs, setManualInputs] = useState({});
-  const [manualPhotos, setManualPhotos] = useState({});
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [sheetExpanded, setSheetExpanded] = useState(false);
 
   const navigate = useNavigate();
   const videoRef = useRef(null);
@@ -38,49 +84,80 @@ const ScanOfficerDashboard = () => {
   const scanLoopRef = useRef(null);
   const detectorRef = useRef(null);
   const cameraSuccessTimerRef = useRef(null);
+  const sheetTouchStartYRef = useRef(null);
 
-  const fetchInbounds = useCallback(async () => {
+  const assignedWarehouseLabel = user?.warehouse?.nama_gudang
+    || user?.nama_gudang
+    || (idGudang ? `Warehouse ${idGudang}` : 'Unassigned warehouse');
+  const receiverName = user?.nama || 'Receiving Officer';
+  const hasWarehouseScope = Boolean(idGudang);
+
+  const currentTitle = activeTab === 'queue'
+    ? 'Receiving queue'
+    : activeTab === 'receive'
+      ? 'Scan'
+      : 'Receiving history';
+
+  const fetchQueue = useCallback(async () => {
+    setQueueLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_BASE_URL}/api/receiving/queue`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setQueueShipments(normalizeListResponse(response.data));
+    } catch (error) {
+      console.error('Error fetching receiving queue:', error);
+      setQueueShipments([]);
+    } finally {
+      setQueueLoading(false);
+    }
+  }, []);
+
+  const fetchHistory = useCallback(async () => {
+    setHistoryLoading(true);
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get(`${API_BASE_URL}/api/inbound`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
-      const resData = response.data.data;
-      const dataArray = Array.isArray(resData) ? resData : (resData?.data || []);
-      setInbounds(dataArray);
-
-      // Calc stats
-      let pendingManual = 0;
-      let cleared = 0;
-      dataArray.forEach(inb => {
-        if (inb.status_scan === 'menunggu' || inb.status_scan === 'sedang_diproses') pendingManual++;
-        if (inb.status_scan === 'selesai') cleared++;
-      });
-      setStats(prev => ({ ...prev, pendingManual, cleared }));
+      setHistoryInbounds(normalizeListResponse(response.data));
     } catch (error) {
-      console.error('Error fetching inbounds:', error);
+      console.error('Error fetching inbound history:', error);
+      setHistoryInbounds([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  const loadShipmentContext = useCallback(async (outboundId) => {
+    if (!outboundId) return null;
+    setContextLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_BASE_URL}/api/receiving/${outboundId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const shipment = response.data?.data || null;
+      setActiveShipment(shipment);
+      setActiveInbound(shipment?.inbound || null);
+      return shipment;
+    } catch (error) {
+      console.error('Error loading shipment context:', error);
+      setScanFeedback({
+        type: 'error',
+        message: error.response?.data?.message || 'Failed to load shipment context.',
+      });
+      return null;
+    } finally {
+      setContextLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void Promise.resolve().then(fetchInbounds);
-  }, [fetchInbounds]);
-
-  const handleLogout = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (token) {
-        await axios.post(`${API_BASE_URL}/api/auth/logout`, {}, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-      }
-    } catch {
-      // Logout should still clear the local session even if the API call fails.
-    }
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    navigate('/login');
-  };
+    void fetchQueue();
+    void fetchHistory();
+  }, [fetchHistory, fetchQueue]);
 
   const stopCamera = useCallback(() => {
     if (scanLoopRef.current) {
@@ -96,9 +173,53 @@ const ScanOfficerDashboard = () => {
     setCameraActive(false);
   }, []);
 
+  const resetVerificationState = useCallback(() => {
+    setActiveBox(null);
+    setVerificationForm({
+      actualQty: '',
+      conditionStatus: 'normal',
+      notes: '',
+    });
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (token) {
+        await axios.post(`${API_BASE_URL}/api/auth/logout`, {}, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }
+    } catch {
+      // Keep client logout resilient.
+    }
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    navigate('/login');
+  };
+
+  const handleSelectShipment = async (shipment) => {
+    resetVerificationState();
+    setScanFeedback(null);
+    setScanMethod('camera');
+    setSheetExpanded(false);
+    await loadShipmentContext(shipment.ID_outbound);
+    setActiveTab('receive');
+  };
+
+  const handleTabChange = (nextTab) => {
+    if (nextTab === 'receive') {
+      setScanMethod('camera');
+      setSheetExpanded(false);
+    }
+
+    setActiveTab(nextTab);
+  };
+
   const handleScanSubmit = useCallback(async (scannedToken = qrToken, source = 'manual') => {
     const tokenValue = String(scannedToken || '').trim();
-    if (!tokenValue) return;
+    if (!tokenValue || !idGudang) return;
+
     setLoading(true);
     setScanFeedback(null);
     try {
@@ -106,18 +227,37 @@ const ScanOfficerDashboard = () => {
       const payload = {
         qr_token: tokenValue,
         ID_gudang: idGudang,
-        nama_penerima: namaPenerima,
-        lokasi_terakhir: 'Warehouse Entry'
+        nama_penerima: receiverName,
+        lokasi_terakhir: 'Warehouse Entry',
       };
-      const response = await axios.post(`${API_BASE_URL}/api/inbound/scan-qr`, payload, {
-        headers: { Authorization: `Bearer ${token}` }
+      const response = await axios.post(`${API_BASE_URL}/api/receiving/scan-box`, payload, {
+        headers: { Authorization: `Bearer ${token}` },
       });
-      
-      setScanFeedback({ type: 'success', message: response.data.message, progress: response.data.progress });
+
+      const result = response.data?.data || {};
+      setActiveInbound(result.inbound || null);
+      setActiveBox(result.box || null);
+      setVerificationForm({
+        actualQty: result.box?.expected_qty_in_box ?? '',
+        conditionStatus: 'normal',
+        notes: '',
+      });
+      setSheetExpanded(true);
+      setScanFeedback({
+        type: 'success',
+        message: `Box ${result.box?.box_code || tokenValue} scanned. Verify actual quantity before continuing.`,
+      });
+      setQrToken('');
+
+      if (result.shipment?.ID_outbound) {
+        await loadShipmentContext(result.shipment.ID_outbound);
+      }
+
+      await Promise.all([fetchQueue(), fetchHistory()]);
+
       if (source === 'camera') {
         setCameraSuccessOverlay({
-          message: response.data.message || 'QR scan successful.',
-          progress: response.data.progress
+          message: `Box ${result.box?.box_code || tokenValue} scanned successfully.`,
         });
 
         if (cameraSuccessTimerRef.current) {
@@ -128,19 +268,19 @@ const ScanOfficerDashboard = () => {
           setCameraSuccessOverlay(null);
           stopCamera();
           cameraSuccessTimerRef.current = null;
-        }, 1800);
+        }, 1600);
       } else {
         stopCamera();
       }
-      setQrToken('');
-      fetchInbounds();
     } catch (error) {
-      const msg = error.response?.data?.message || error.message;
-      setScanFeedback({ type: 'error', message: msg });
+      setScanFeedback({
+        type: 'error',
+        message: error.response?.data?.message || 'Failed to scan box.',
+      });
     } finally {
       setLoading(false);
     }
-  }, [fetchInbounds, idGudang, namaPenerima, qrToken, stopCamera]);
+  }, [fetchHistory, fetchQueue, idGudang, loadShipmentContext, qrToken, receiverName, stopCamera]);
 
   const startCamera = useCallback(async () => {
     setCameraError('');
@@ -150,6 +290,11 @@ const ScanOfficerDashboard = () => {
     if (cameraSuccessTimerRef.current) {
       window.clearTimeout(cameraSuccessTimerRef.current);
       cameraSuccessTimerRef.current = null;
+    }
+
+    if (!hasWarehouseScope) {
+      setCameraError('Your account is not assigned to a warehouse yet. Contact admin before scanning.');
+      return;
     }
 
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -168,9 +313,9 @@ const ScanOfficerDashboard = () => {
         video: {
           facingMode: { ideal: 'environment' },
           width: { ideal: 1280 },
-          height: { ideal: 720 }
+          height: { ideal: 720 },
         },
-        audio: false
+        audio: false,
       });
 
       streamRef.current = stream;
@@ -210,23 +355,19 @@ const ScanOfficerDashboard = () => {
       setCameraError(message);
       stopCamera();
     }
-  }, [handleScanSubmit, stopCamera]);
+  }, [handleScanSubmit, hasWarehouseScope, stopCamera]);
 
   useEffect(() => {
     let cancelled = false;
 
-    if (scanMethod === 'camera') {
+    if (scanMethod === 'camera' && activeTab === 'receive') {
       void Promise.resolve().then(() => {
         if (!cancelled) {
           startCamera();
         }
       });
     } else {
-      void Promise.resolve().then(() => {
-        if (!cancelled) {
-          stopCamera();
-        }
-      });
+      stopCamera();
     }
 
     return () => {
@@ -237,625 +378,524 @@ const ScanOfficerDashboard = () => {
       }
       stopCamera();
     };
-  }, [scanMethod, startCamera, stopCamera]);
+  }, [activeTab, scanMethod, startCamera, stopCamera]);
 
-  const handleLoadManualInbound = async () => {
-    if (!manualInboundId) return;
+  const handleVerifyBox = async () => {
+    if (!activeInbound?.ID_inbound || !activeBox?.ID_outbound_box) return;
+
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_BASE_URL}/api/inbound/${manualInboundId}`, {
-        headers: { Authorization: `Bearer ${token}` }
+      const payload = buildVerifyBoxPayload({
+        inboundId: activeInbound.ID_inbound,
+        boxId: activeBox.ID_outbound_box,
+        actualQty: verificationForm.actualQty,
+        conditionStatus: verificationForm.conditionStatus,
+        notes: verificationForm.notes,
       });
-      const inbound = response.data.data;
-      const inputs = {};
-      inbound.details?.forEach(detail => {
-        inputs[detail.ID_inbound_detail] = {
-          quantity_inbound: detail.quantity_inbound ?? '',
-          ada_cacat: Boolean(detail.ada_cacat),
-          catatan_cacat: detail.catatan_cacat || ''
-        };
+      const response = await axios.post(`${API_BASE_URL}/api/receiving/verify-box`, payload, {
+        headers: { Authorization: `Bearer ${token}` },
       });
-      setSelectedInbound(inbound);
-      setManualInputs(inputs);
+
+      const result = response.data?.data || {};
+      setScanFeedback({
+        type: 'success',
+        message: `Verification saved for ${activeBox.box_code}. Result: ${formatStatusLabel(result.verification_status, 'saved')}.`,
+      });
+      await Promise.all([
+        loadShipmentContext(activeShipment?.ID_outbound),
+        fetchQueue(),
+        fetchHistory(),
+      ]);
+      resetVerificationState();
+      setQrToken('');
     } catch (error) {
-      const msg = error.response?.data?.message || error.message;
-      alert(`Error loading inbound: ${msg}`);
+      setScanFeedback({
+        type: 'error',
+        message: error.response?.data?.message || 'Failed to verify box.',
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  const updateManualInput = (detailId, field, value) => {
-    setManualInputs(prev => ({
-      ...prev,
-      [detailId]: {
-        ...(prev[detailId] || {}),
-        [field]: value
-      }
-    }));
-  };
+  const handleFinalizeReceiving = async () => {
+    if (!activeInbound?.ID_inbound) return;
 
-  const handleSaveManualDetail = async (detail) => {
-    const input = manualInputs[detail.ID_inbound_detail];
-    if (!selectedInbound || !input || input.quantity_inbound === '') return;
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      await axios.put(`${API_BASE_URL}/api/inbound/${selectedInbound.ID_inbound}/manual-verification/${detail.ID_inbound_detail}`, {
-        quantity_inbound: parseInt(input.quantity_inbound, 10),
-        ada_cacat: input.ada_cacat,
-        catatan_cacat: input.catatan_cacat
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
+      const response = await axios.post(`${API_BASE_URL}/api/receiving/${activeInbound.ID_inbound}/finalize`, {}, {
+        headers: { Authorization: `Bearer ${token}` },
       });
-      await handleLoadManualInbound();
-      alert('Manual verification saved.');
+      const result = response.data?.data || {};
+
+      setScanFeedback({
+        type: 'success',
+        message: (result.summary?.issue_boxes || 0) > 0
+          ? 'Shipment completed. Review the issue summary in history.'
+          : 'Shipment completed.',
+      });
+
+      await Promise.all([fetchQueue(), fetchHistory()]);
+      setActiveShipment(null);
+      setActiveInbound(null);
+      resetVerificationState();
+      setActiveTab('history');
     } catch (error) {
-      const msg = error.response?.data?.message || error.message;
-      alert(`Error saving manual verification: ${msg}`);
+      setScanFeedback({
+        type: 'error',
+        message: error.response?.data?.message || 'Failed to finalize receiving.',
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleUploadManualPhoto = async (detail) => {
-    const file = manualPhotos[detail.ID_inbound_detail];
-    if (!selectedInbound || !file) return;
-    setLoading(true);
-    try {
-      const token = localStorage.getItem('token');
-      const formData = new FormData();
-      formData.append('foto', file);
+  const progress = buildReceivingProgress(activeShipment);
 
-      await axios.post(`${API_BASE_URL}/api/inbound/${selectedInbound.ID_inbound}/manual-verification/${detail.ID_inbound_detail}/photo`, formData, {
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
-      });
-      setManualPhotos(prev => ({ ...prev, [detail.ID_inbound_detail]: null }));
-      await handleLoadManualInbound();
-      alert('Condition photo uploaded.');
-    } catch (error) {
-      const msg = error.response?.data?.message || error.message;
-      alert(`Error uploading condition photo: ${msg}`);
-    } finally {
-      setLoading(false);
+  const handleSheetTouchStart = (event) => {
+    sheetTouchStartYRef.current = event.touches?.[0]?.clientY ?? null;
+  };
+
+  const handleSheetTouchEnd = (event) => {
+    const startY = sheetTouchStartYRef.current;
+    const endY = event.changedTouches?.[0]?.clientY ?? null;
+    sheetTouchStartYRef.current = null;
+
+    if (startY === null || endY === null) return;
+
+    const delta = endY - startY;
+
+    if (delta < -32) {
+      setSheetExpanded(true);
+    } else if (delta > 32 && !activeBox) {
+      setSheetExpanded(false);
     }
   };
 
-  const handleFinalizeManualVerification = async () => {
-    if (!selectedInbound) return;
-    setLoading(true);
-    try {
-      const token = localStorage.getItem('token');
-      await axios.post(`${API_BASE_URL}/api/inbound/${selectedInbound.ID_inbound}/manual-verification/finalize`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      alert('Manual verification finalized.');
-      setSelectedInbound(null);
-      setManualInboundId('');
-      fetchInbounds();
-    } catch (error) {
-      const msg = error.response?.data?.message || error.message;
-      alert(`Error finalizing verification: ${msg}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const formatDateTime = (value) => {
-    if (!value) {
-      return '-';
-    }
-
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-  };
-
-  const getScanProgress = (inbound) => {
-    const scanned = inbound.total_qr_sudah_discan ?? inbound.total_box_sudah_discan ?? 0;
-    const total = inbound.total_qr_expected ?? inbound.total_box_expected ?? 0;
-    const percent = total > 0 ? Math.min(100, Math.round((scanned / total) * 100)) : 0;
-
-    return { scanned, total, percent };
-  };
-
-  const handleOpenManualFromLog = (inboundId) => {
-    setManualInboundId(String(inboundId));
-    setActiveTab('manual');
-  };
-
-  const getStatusBadge = (status) => {
-    switch(status) {
-      case 'menunggu': return <span className="badge badge-warning">Awaiting Manual Verification</span>;
-      case 'sedang_diproses': return <span className="badge badge-info">In Progress</span>;
-      case 'selesai': return <span className="badge badge-success">Verified</span>;
-      default: return <span className="badge badge-warning">{status}</span>;
-    }
-  };
-
-  return (
-    <div className="app-container scan-officer-dashboard">
-      {/* Sidebar */}
-      <aside className="sidebar">
-        <div className="sidebar-header">
-          <div className="logo">
-            <i className="fa-solid fa-qrcode"></i>
-            <span>EpsonVerify</span>
-          </div>
-        </div>
-        <nav className="sidebar-nav">
-          <div className="nav-section">MAIN</div>
-          <a href="#" className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={(e) => {e.preventDefault(); setActiveTab('dashboard');}}>
-            <i className="fa-solid fa-chart-pie"></i>
-            <span>Dashboard</span>
-          </a>
-          <a href="#" className={`nav-item ${activeTab === 'scan' ? 'active' : ''}`} onClick={(e) => {e.preventDefault(); setActiveTab('scan');}}>
-            <i className="fa-solid fa-expand"></i>
-            <span>Scan Inbound</span>
-          </a>
-          <a href="#" className={`nav-item ${activeTab === 'manual' ? 'active' : ''}`} onClick={(e) => {e.preventDefault(); setActiveTab('manual');}}>
-            <i className="fa-solid fa-camera"></i>
-            <span>Manual Verification</span>
-          </a>
-          
-          <div className="nav-section">HISTORY</div>
-          <a href="#" className={`nav-item ${activeTab === 'logs' ? 'active' : ''}`} onClick={(e) => {e.preventDefault(); setActiveTab('logs');}}>
-            <i className="fa-solid fa-clock-rotate-left"></i>
-            <span>Scan Logs</span>
-          </a>
-        </nav>
-        <div className="sidebar-footer">
-          <a href="#" className="nav-item text-danger" onClick={(e) => {e.preventDefault(); handleLogout();}}>
-            <i className="fa-solid fa-right-from-bracket"></i>
-            <span>Logout</span>
-          </a>
-        </div>
-      </aside>
-
-      {/* Main Content */}
-      <main className="main-content">
-        {/* Header */}
-        <header className="topbar">
-          <div className="search-bar">
-            <i className="fa-solid fa-search"></i>
-            <input type="text" placeholder="Search token, shipment ID..." />
-          </div>
-          <div className="topbar-actions">
-            <button className="icon-btn">
-              <i className="fa-regular fa-bell"></i>
-            </button>
-            <div className="user-profile">
-              <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: '#003399', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
-                {user ? user.nama?.charAt(0).toUpperCase() : 'S'}
-              </div>
-              <div className="user-info">
-                <span className="user-name">{user ? user.nama : 'Scan Officer'}</span>
-                <span className="user-role">{user ? user.role : 'Staff'}</span>
-              </div>
+  const renderCameraStage = () => (
+    <>
+      {scanMethod === 'camera' ? (
+        <div className="camera-viewport receiving-fullscan__camera">
+          <video ref={videoRef} className="camera-video" muted playsInline autoPlay />
+          <div className="scanner-overlay">
+            <div className="scanner-box">
+              <div className="scanner-line"></div>
             </div>
           </div>
-        </header>
-
-        <div className="content-wrapper">
-          <div className="page-header">
-            <div>
-              <h1>{activeTab === 'dashboard' ? 'Incoming Goods Verification' : activeTab === 'scan' ? 'Inbound QR Scan' : activeTab === 'manual' ? 'Manual Verification' : 'Scan Logs'}</h1>
-              <p className="subtitle">Scan and verify vendor shipments arriving at the warehouse.</p>
+          {cameraSuccessOverlay && (
+            <div className="camera-success-overlay">
+              <div className="camera-success-icon">
+                <i className="fa-solid fa-check"></i>
+              </div>
+              <strong>QR scanned</strong>
+              <span>{cameraSuccessOverlay.message}</span>
             </div>
-            {activeTab === 'dashboard' && (
-              <button className="btn btn-primary" onClick={() => setActiveTab('scan')}>
-                <i className="fa-solid fa-qrcode"></i> New Scan Session
+          )}
+          {(!cameraActive || cameraError) && !cameraSuccessOverlay && (
+            <div className="camera-placeholder">
+              <i className={`fa-solid ${cameraError ? 'fa-video-slash' : 'fa-camera'}`}></i>
+              <p>{cameraError || 'Starting camera...'}</p>
+              <div className="camera-actions">
+                <button type="button" className="receiving-btn receiving-btn--ghost" onClick={startCamera}>
+                  Retry
+                </button>
+                <button type="button" className="receiving-btn receiving-btn--ghost" onClick={() => {
+                  setScanMethod('manual');
+                  setSheetExpanded(true);
+                }}>
+                  Manual entry
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="camera-viewport receiving-fullscan__camera receiving-fullscan__camera--manual">
+          <div className="camera-placeholder">
+            <i className="fa-solid fa-keyboard"></i>
+            <p>Manual entry mode is active. Type the QR token from the box label below.</p>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  const renderQueueView = () => (
+    <div className="receiving-mobile__stack">
+      <SectionCard
+        title="Assigned shipments"
+        action={(
+          <button
+            type="button"
+            className="receiving-btn receiving-btn--ghost"
+            onClick={() => { void fetchQueue(); void fetchHistory(); }}
+            disabled={queueLoading || historyLoading}
+          >
+            Refresh
+          </button>
+        )}
+      >
+        {queueLoading ? (
+          <EmptyState
+            description="Please wait while the latest queue is loaded."
+            icon="fa-solid fa-spinner fa-spin"
+            title="Loading queue"
+          />
+        ) : queueShipments.length === 0 ? (
+          <EmptyState
+            description="New shipments for this warehouse will appear here."
+            icon="fa-solid fa-inbox"
+            title="No shipments in queue"
+          />
+        ) : (
+          <div className="receiving-list">
+            {queueShipments.map((shipment) => (
+              <article className="receiving-item" key={shipment.ID_outbound}>
+                <div className="receiving-item__body">
+                  <div className="receiving-item__top">
+                    <div>
+                      <strong>{shipment.no_pengiriman || `SHP-${shipment.ID_outbound}`}</strong>
+                      <p>{shipment.vendor?.nama_vendor || `Vendor ${shipment.ID_vendor || '-'}`}</p>
+                    </div>
+                    <StatusBadge
+                      label={formatStatusLabel(shipment.status, 'submitted')}
+                      tone={getStatusTone(shipment.status)}
+                    />
+                  </div>
+                  <div className="receiving-item__meta">
+                    <span>{formatDateTime(shipment.waktu_kirim)}</span>
+                    <span>{assignedWarehouseLabel}</span>
+                  </div>
+                </div>
+                <button type="button" className="receiving-btn receiving-btn--ghost" onClick={() => void handleSelectShipment(shipment)}>
+                  Start
+                </button>
+              </article>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+    </div>
+  );
+
+  const renderReceiveView = () => (
+    <div className="receiving-mobile__stack">
+      <div className="receiving-fullscan">
+        <div className="receiving-fullscan__topbar">
+          <button type="button" className="receiving-fullscan__icon-btn" onClick={() => handleTabChange('queue')} aria-label="Back to queue">
+            <i className="fa-solid fa-arrow-left"></i>
+          </button>
+          <div className="receiving-fullscan__topcopy">
+            <strong>{activeShipment?.no_pengiriman || 'Ready to scan'}</strong>
+            <span>{activeShipment ? assignedWarehouseLabel : 'Scan a QR or enter token to start a shipment session.'}</span>
+          </div>
+          <StatusBadge
+            label={activeShipment ? `${progress.scannedBoxes}/${progress.totalBoxes}` : 'Scan'}
+            tone={activeShipment ? (progress.issueBoxes > 0 ? 'danger' : 'neutral') : 'neutral'}
+          />
+        </div>
+
+        {renderCameraStage()}
+
+        <div
+          className={`receiving-sheet ${sheetExpanded ? 'is-expanded' : ''}`}
+          onTouchStart={handleSheetTouchStart}
+          onTouchEnd={handleSheetTouchEnd}
+        >
+          <button
+            type="button"
+            className="receiving-sheet__handle"
+            onClick={() => setSheetExpanded((prev) => !prev)}
+            aria-label={sheetExpanded ? 'Collapse session panel' : 'Expand session panel'}
+          >
+            <span></span>
+          </button>
+
+          <div className="receiving-sheet__summary">
+            <div className="receiving-sheet__summary-copy">
+              <strong>{activeShipment?.vendor?.nama_vendor || 'No active shipment yet'}</strong>
+              <span>
+                {activeShipment
+                  ? `${progress.scannedBoxes} of ${progress.totalBoxes} scanned`
+                  : `Warehouse scope: ${assignedWarehouseLabel}`}
+              </span>
+            </div>
+            <div className="receiving-sheet__summary-side">
+              <span>
+                {activeShipment
+                  ? `${progress.issueBoxes} issue${progress.issueBoxes === 1 ? '' : 's'}`
+                  : receiverName}
+              </span>
+              {activeInbound?.ID_inbound ? (
+                <button
+                  type="button"
+                  className="receiving-btn receiving-btn--ghost"
+                  onClick={() => void handleFinalizeReceiving()}
+                  disabled={loading || progress.totalBoxes === 0 || progress.scannedBoxes < progress.totalBoxes}
+                >
+                  Finalize
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          <ProgressBar label="Progress" value={progress.progressPercent} />
+
+          <div className="receiving-sheet__content">
+            <div className="receiving-toggle receiving-sheet__toggle">
+              <button
+                type="button"
+                className={scanMethod === 'camera' ? 'is-active' : ''}
+                onClick={() => {
+                  setScanMethod('camera');
+                  setSheetExpanded(false);
+                }}
+              >
+                Camera
               </button>
+              <button
+                type="button"
+                className={scanMethod === 'manual' ? 'is-active' : ''}
+                onClick={() => {
+                  setScanMethod('manual');
+                  setSheetExpanded(true);
+                }}
+              >
+                Manual
+              </button>
+            </div>
+
+            {!hasWarehouseScope ? (
+              <div className="receiving-inline-warning">
+                This account does not have a warehouse assignment yet. Contact admin to continue scanning.
+              </div>
+            ) : null}
+
+            {scanMethod === 'manual' ? (
+              <div className="receiving-manual">
+                <div className="receiving-field-group">
+                  <label htmlFor="qr-token">QR token</label>
+                  <input
+                    id="qr-token"
+                    className="receiving-control"
+                    type="text"
+                    placeholder="BOX-TOKEN-001"
+                    value={qrToken}
+                    onChange={(event) => setQrToken(event.target.value)}
+                  />
+                </div>
+                <AppButton
+                  className="receiving-primary-button"
+                  disabled={loading || !qrToken || !hasWarehouseScope}
+                  type="button"
+                  onClick={() => void handleScanSubmit()}
+                >
+                  {loading ? 'Processing...' : 'Scan this box'}
+                </AppButton>
+              </div>
+            ) : null}
+
+            {activeBox ? (
+              <div className="receiving-verify">
+                <div className="receiving-flow__verify-head">
+                  <div>
+                    <span>Current box</span>
+                    <strong>{activeBox.box_code}</strong>
+                  </div>
+                  <div>
+                    <span>Expected</span>
+                    <strong>{activeBox.expected_qty_in_box}</strong>
+                  </div>
+                </div>
+
+                <div className="receiving-field-group">
+                  <label htmlFor="actual-qty">Actual quantity</label>
+                  <input
+                    id="actual-qty"
+                    className="receiving-control"
+                    type="number"
+                    min="0"
+                    value={verificationForm.actualQty}
+                    onChange={(event) => setVerificationForm((prev) => ({ ...prev, actualQty: event.target.value }))}
+                  />
+                </div>
+
+                <div className="receiving-field-group">
+                  <label htmlFor="condition-status">Condition</label>
+                  <select
+                    id="condition-status"
+                    className="receiving-control"
+                    value={verificationForm.conditionStatus}
+                    onChange={(event) => setVerificationForm((prev) => ({ ...prev, conditionStatus: event.target.value }))}
+                  >
+                    <option value="normal">Normal</option>
+                    <option value="damaged">Damaged</option>
+                    <option value="suspect">Suspect</option>
+                  </select>
+                </div>
+
+                <div className="receiving-field-group">
+                  <label htmlFor="verification-notes">Notes</label>
+                  <textarea
+                    id="verification-notes"
+                    className="receiving-control receiving-control--textarea"
+                    rows="4"
+                    placeholder="Add notes if something needs manager review."
+                    value={verificationForm.notes}
+                    onChange={(event) => setVerificationForm((prev) => ({ ...prev, notes: event.target.value }))}
+                  />
+                </div>
+
+                <div className="receiving-actions">
+                  <AppButton
+                    className="receiving-primary-button"
+                    disabled={loading || verificationForm.actualQty === ''}
+                    type="button"
+                    onClick={() => void handleVerifyBox()}
+                  >
+                    {loading ? 'Saving...' : 'Submit and next'}
+                  </AppButton>
+                  <button type="button" className="receiving-btn receiving-btn--ghost" onClick={resetVerificationState} disabled={loading}>
+                    Clear box
+                  </button>
+                </div>
+              </div>
+            ) : !activeShipment ? (
+              <div className="receiving-sheet__empty">
+                <strong>Scan a box to begin</strong>
+                <span>The shipment session will appear here automatically after a valid QR or manual token is read.</span>
+              </div>
+            ) : scanMethod === 'camera' && !sheetExpanded ? (
+              <div className="receiving-sheet__hint">Aim the QR inside the frame. Pull up for manual entry.</div>
+            ) : (
+              <div className="receiving-sheet__empty">
+                <strong>Nothing to verify yet</strong>
+                <span>Scan one box first. Its expected quantity will appear here.</span>
+              </div>
             )}
           </div>
-
-          {activeTab === 'dashboard' && (
-            <>
-              {/* Stats Row */}
-              <div className="stats-grid">
-                <div className="stat-card">
-                  <div className="stat-icon bg-blue-light"><i className="fa-solid fa-boxes-stacked text-blue"></i></div>
-                  <div className="stat-details">
-                    <h3>{stats.scannedToday || 0}</h3>
-                    <p>Items Scanned Today</p>
-                  </div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-icon bg-warning-light"><i className="fa-solid fa-camera text-warning"></i></div>
-                  <div className="stat-details">
-                    <h3>{stats.pendingManual}</h3>
-                    <p>Pending Manual Verification</p>
-                  </div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-icon bg-danger-light"><i className="fa-solid fa-triangle-exclamation text-danger"></i></div>
-                  <div className="stat-details">
-                    <h3>{stats.activeDiscrepancies || 0}</h3>
-                    <p>Active Discrepancies</p>
-                  </div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-icon bg-success-light"><i className="fa-solid fa-check-double text-success"></i></div>
-                  <div className="stat-details">
-                    <h3>{stats.cleared}</h3>
-                    <p>Shipments Cleared</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Recent Shipments Table */}
-              <div className="card mt-4">
-                <div className="card-header">
-                  <h2>Recent Incoming Shipments</h2>
-                </div>
-                <div className="table-responsive">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>Inbound ID</th>
-                        <th>Vendor ID</th>
-                        <th>Date/Time</th>
-                        <th>Scanned Boxes</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {inbounds.slice(0, 10).map(inb => (
-                        <tr key={inb.ID_inbound}>
-                          <td><strong>INB-{inb.ID_inbound}</strong></td>
-                          <td>{inb.ID_vendor}</td>
-                          <td>{new Date(inb.timestamp_terima).toLocaleString()}</td>
-                          <td>{inb.total_box_sudah_discan} / {inb.total_box_expected}</td>
-                          <td>{getStatusBadge(inb.status_scan)}</td>
-                        </tr>
-                      ))}
-                      {inbounds.length === 0 && (
-                        <tr><td colSpan="5" className="text-center">No recent incoming shipments found.</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </>
-          )}
-
-          {activeTab === 'scan' && (
-            <div className="card scan-module" style={{ maxWidth: '800px', margin: '0 auto' }}>
-              <div className="card-header">
-                <h2>Quick Scan</h2>
-                <div className="scan-tabs">
-                  <button className={`tab-btn ${scanMethod === 'camera' ? 'active' : ''}`} onClick={() => setScanMethod('camera')}>Camera</button>
-                  <button className={`tab-btn ${scanMethod === 'manual' ? 'active' : ''}`} onClick={() => setScanMethod('manual')}>Manual Entry</button>
-                </div>
-              </div>
-              <div className="card-body">
-                <div className="scan-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
-                  <div className="form-group">
-                    <label>Warehouse</label>
-                    <select className="form-control" value={idGudang} onChange={(e) => setIdGudang(e.target.value)}>
-                      <option value="1">Gudang Utama A</option>
-                      <option value="2">Gudang Transit B</option>
-                      <option value="3">Gudang Sparepart C</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>Receiver Name</label>
-                    <input type="text" className="form-control" value={namaPenerima} onChange={(e) => setNamaPenerima(e.target.value)} />
-                  </div>
-                </div>
-
-                {scanMethod === 'camera' ? (
-                  <>
-                    {scanFeedback?.type === 'success' && (
-                      <div className="scan-success-banner">
-                        <div className="scan-success-banner-icon">
-                          <i className="fa-solid fa-check-circle"></i>
-                        </div>
-                        <div>
-                          <strong>Successfully Scanned</strong>
-                          <span>{scanFeedback.message}</span>
-                          {scanFeedback.progress && (
-                            <small>
-                              Progress: {scanFeedback.progress.scanned} / {scanFeedback.progress.total} QR Codes scanned
-                            </small>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="camera-viewport">
-                      <video
-                        ref={videoRef}
-                        className="camera-video"
-                        muted
-                        playsInline
-                        autoPlay
-                      />
-                      <div className="scanner-overlay">
-                        <div className="scanner-box"><div className="scanner-line"></div></div>
-                      </div>
-                      {cameraSuccessOverlay && (
-                        <div className="camera-success-overlay">
-                          <div className="camera-success-icon">
-                            <i className="fa-solid fa-check"></i>
-                          </div>
-                          <strong>QR Scan Successful</strong>
-                          <span>{cameraSuccessOverlay.message}</span>
-                          {cameraSuccessOverlay.progress && (
-                            <small>
-                              Progress: {cameraSuccessOverlay.progress.scanned} / {cameraSuccessOverlay.progress.total} QR Codes scanned
-                            </small>
-                          )}
-                        </div>
-                      )}
-                      {(!cameraActive || cameraError) && !cameraSuccessOverlay && (
-                        <div className="camera-placeholder">
-                          <i className={`fa-solid ${cameraError ? 'fa-video-slash' : 'fa-camera'}`}></i>
-                          <p>{cameraError || 'Starting camera...'}</p>
-                          <div className="camera-actions">
-                            <button className="btn btn-outline" onClick={startCamera}>Retry Camera</button>
-                            <button className="btn btn-outline" onClick={() => setScanMethod('manual')}>Use Manual Input</button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <div className="manual-entry-form">
-                    <div className="form-group">
-                      <label>Enter QR Token</label>
-                      <div className="input-with-icon">
-                        <i className="fa-solid fa-keyboard"></i>
-                        <input type="text" className="form-control" placeholder="e.g. TOK-8X9A2B4C" value={qrToken} onChange={(e) => setQrToken(e.target.value)} />
-                      </div>
-                      <small className="form-text">Enter the fallback token printed below the QR code on the box.</small>
-                    </div>
-                    <button className="btn btn-primary w-100 mt-2" onClick={() => handleScanSubmit()} disabled={loading || !qrToken}>
-                      {loading ? 'Processing...' : 'Verify Token & Process Inbound'}
-                    </button>
-                  </div>
-                )}
-
-                {scanFeedback && !(scanMethod === 'camera' && scanFeedback.type === 'success') && (
-                  <div style={{ marginTop: '20px', padding: '15px', borderRadius: '8px', backgroundColor: scanFeedback.type === 'success' ? '#dcfce7' : '#fee2e2', color: scanFeedback.type === 'success' ? '#166534' : '#991b1b' }}>
-                    <div style={{ fontWeight: 'bold' }}>{scanFeedback.type === 'success' ? <><i className="fa-solid fa-check-circle"></i> Success</> : <><i className="fa-solid fa-triangle-exclamation"></i> Error</>}</div>
-                    <div>{scanFeedback.message}</div>
-                    {scanFeedback.progress && (
-                      <div style={{ marginTop: '10px' }}>
-                        Progress: {scanFeedback.progress.scanned} / {scanFeedback.progress.total} QR Codes scanned for this shipment.
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'manual' && (
-            <div className="manual-verification-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-              <div className="card">
-                <div className="card-header">
-                  <h2>Manual Item Verification</h2>
-                </div>
-                <div className="card-body">
-                  <div className="form-group">
-                    <label>Select Inbound Shipment</label>
-                    <select className="form-control" value={manualInboundId} onChange={(e) => setManualInboundId(e.target.value)}>
-                      <option value="">Select Inbound...</option>
-                      {inbounds.filter(i => i.status_scan === 'menunggu').map(inb => (
-                        <option key={inb.ID_inbound} value={inb.ID_inbound}>INB-{inb.ID_inbound} (QR: {inb.total_qr_sudah_discan || 0}/{inb.total_qr_expected || inb.total_box_expected})</option>
-                      ))}
-                    </select>
-                  </div>
-                  <button className="btn btn-primary w-100" onClick={handleLoadManualInbound} disabled={loading || !manualInboundId}>
-                    Load Item Details
-                  </button>
-
-                  {selectedInbound && (
-                    <div style={{ marginTop: '20px' }}>
-                      <div style={{ backgroundColor: '#f8fafc', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
-                        <strong>INB-{selectedInbound.ID_inbound}</strong>
-                        <div style={{ color: '#64748b', fontSize: '0.9rem' }}>Input actual received quantities and upload condition photos for audit.</div>
-                      </div>
-
-                      <div style={{ display: 'grid', gap: '14px' }}>
-                        {selectedInbound.details?.map(detail => {
-                          const input = manualInputs[detail.ID_inbound_detail] || {};
-                          return (
-                            <div key={detail.ID_inbound_detail} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px' }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', marginBottom: '12px' }}>
-                                <div>
-                                  <strong>{detail.barang?.nama_barang || `Item ${detail.ID_barang}`}</strong>
-                                  <div style={{ color: '#64748b', fontSize: '0.85rem' }}>Inbound Detail #{detail.ID_inbound_detail}</div>
-                                </div>
-                                <span className="badge badge-info">{detail.audit_photos?.length || 0} Photos</span>
-                              </div>
-
-                              <div className="form-group">
-                                <label>Actual Quantity Received</label>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  className="form-control"
-                                  value={input.quantity_inbound ?? ''}
-                                  onChange={(e) => updateManualInput(detail.ID_inbound_detail, 'quantity_inbound', e.target.value)}
-                                />
-                              </div>
-
-                              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                                <input
-                                  type="checkbox"
-                                  checked={Boolean(input.ada_cacat)}
-                                  onChange={(e) => updateManualInput(detail.ID_inbound_detail, 'ada_cacat', e.target.checked)}
-                                />
-                                Item condition has damage/notes
-                              </label>
-
-                              <div className="form-group">
-                                <label>Condition Notes</label>
-                                <textarea
-                                  className="form-control"
-                                  rows="2"
-                                  value={input.catatan_cacat || ''}
-                                  onChange={(e) => updateManualInput(detail.ID_inbound_detail, 'catatan_cacat', e.target.value)}
-                                  placeholder="Optional notes about packaging, damage, or item condition"
-                                />
-                              </div>
-
-                              <div className="form-group">
-                                <label>Condition Photo</label>
-                                <input
-                                  type="file"
-                                  className="form-control"
-                                  accept="image/*"
-                                  capture="environment"
-                                  onChange={(e) => setManualPhotos(prev => ({ ...prev, [detail.ID_inbound_detail]: e.target.files[0] }))}
-                                />
-                              </div>
-
-                              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                                <button className="btn btn-outline" onClick={() => handleSaveManualDetail(detail)} disabled={loading || input.quantity_inbound === ''}>
-                                  <i className="fa-solid fa-floppy-disk"></i> Save Input
-                                </button>
-                                <button className="btn btn-outline" onClick={() => handleUploadManualPhoto(detail)} disabled={loading || !manualPhotos[detail.ID_inbound_detail]}>
-                                  <i className="fa-solid fa-camera"></i> Upload Photo
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      <button className="btn btn-success w-100 mt-3" onClick={handleFinalizeManualVerification} disabled={loading} style={{ backgroundColor: '#10b981', color: 'white', borderColor: '#10b981' }}>
-                        <i className="fa-solid fa-check"></i> Finalize Manual Verification
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="card">
-                <div className="card-header">
-                  <h2>Audit Evidence</h2>
-                </div>
-                <div className="card-body">
-                  {!selectedInbound ? (
-                    <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
-                      <i className="fa-solid fa-clipboard-list" style={{ fontSize: '3rem', marginBottom: '10px' }}></i>
-                      <p>Select an inbound shipment to review manual inputs and condition photos.</p>
-                    </div>
-                  ) : (
-                    <div style={{ display: 'grid', gap: '12px' }}>
-                      {selectedInbound.details?.map(detail => (
-                        <div key={detail.ID_inbound_detail} style={{ padding: '14px', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
-                          <strong>{detail.barang?.nama_barang || `Item ${detail.ID_barang}`}</strong>
-                          <div style={{ color: '#64748b', fontSize: '0.9rem', marginTop: '4px' }}>
-                            Actual quantity: {manualInputs[detail.ID_inbound_detail]?.quantity_inbound || 'Not entered'}
-                          </div>
-                          <div style={{ color: '#64748b', fontSize: '0.9rem' }}>
-                            Condition: {manualInputs[detail.ID_inbound_detail]?.ada_cacat ? 'Needs review' : 'No issue marked'}
-                          </div>
-                          {detail.audit_photos?.length > 0 && (
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '8px', marginTop: '10px' }}>
-                              {detail.audit_photos.map(photo => (
-                                <a key={photo.ID_foto} href={photo.file_url} target="_blank" rel="noreferrer">
-                                  <img src={photo.file_url} alt="Condition evidence" style={{ width: '100%', height: '90px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #e2e8f0' }} />
-                                </a>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'logs' && (
-            <div className="scan-logs-view">
-              <div className="scan-log-summary">
-                <div className="scan-log-kpi">
-                  <span>Total Records</span>
-                  <strong>{inbounds.length}</strong>
-                </div>
-                <div className="scan-log-kpi">
-                  <span>Waiting Manual Check</span>
-                  <strong>{stats.pendingManual}</strong>
-                </div>
-                <div className="scan-log-kpi">
-                  <span>Completed</span>
-                  <strong>{stats.cleared}</strong>
-                </div>
-              </div>
-
-              <div className="card">
-                <div className="card-header scan-log-header">
-                  <div>
-                    <h2>Inbound Scan History</h2>
-                    <p>Track scanned QR records and continue manual verification when needed.</p>
-                  </div>
-                  <button className="btn btn-primary" onClick={() => setActiveTab('scan')}>
-                    <i className="fa-solid fa-qrcode"></i> New Scan
-                  </button>
-                </div>
-                <div className="scan-log-list">
-                  {inbounds.map(inbound => {
-                    const progress = getScanProgress(inbound);
-                    const needsManual = inbound.status_scan === 'menunggu' || inbound.status_scan === 'sedang_diproses';
-
-                    return (
-                      <div className="scan-log-item" key={inbound.ID_inbound}>
-                        <div className="scan-log-icon">
-                          <i className={`fa-solid ${inbound.status_scan === 'selesai' ? 'fa-check' : 'fa-clipboard-check'}`}></i>
-                        </div>
-                        <div className="scan-log-main">
-                          <div className="scan-log-title-row">
-                            <div>
-                              <strong>INB-{inbound.ID_inbound}</strong>
-                              <span>Vendor {inbound.ID_vendor || '-'}</span>
-                            </div>
-                            {getStatusBadge(inbound.status_scan)}
-                          </div>
-                          <div className="scan-log-meta">
-                            <span><i className="fa-regular fa-clock"></i> {formatDateTime(inbound.timestamp_terima)}</span>
-                            <span><i className="fa-solid fa-location-dot"></i> {inbound.lokasi_terakhir || 'Warehouse Entry'}</span>
-                            <span><i className="fa-regular fa-user"></i> {inbound.nama_penerima || 'Officer'}</span>
-                          </div>
-                          <div className="scan-log-progress-row">
-                            <div className="scan-log-progress">
-                              <div style={{ width: `${progress.percent}%` }}></div>
-                            </div>
-                            <span>{progress.scanned} / {progress.total} QR scanned</span>
-                          </div>
-                        </div>
-                        <div className="scan-log-actions">
-                          {needsManual ? (
-                            <button className="btn btn-outline" onClick={() => handleOpenManualFromLog(inbound.ID_inbound)}>
-                              <i className="fa-solid fa-pen-to-square"></i> Verify
-                            </button>
-                          ) : (
-                            <span className="scan-log-complete"><i className="fa-solid fa-circle-check"></i> Done</span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {inbounds.length === 0 && (
-                    <div className="scan-log-empty">
-                      <i className="fa-solid fa-clock-rotate-left"></i>
-                      <strong>No scan logs yet</strong>
-                      <span>Successful inbound QR scans will appear here.</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
         </div>
+      </div>
+    </div>
+  );
+
+  const renderHistoryView = () => (
+    <div className="receiving-mobile__stack">
+      <SectionCard
+        title="Recent history"
+        action={(
+          <button
+            type="button"
+            className="receiving-btn receiving-btn--ghost"
+            onClick={() => { void fetchHistory(); }}
+            disabled={historyLoading}
+          >
+            Refresh
+          </button>
+        )}
+      >
+        {historyLoading ? (
+          <EmptyState
+            description="Please wait while receiving history is loaded."
+            icon="fa-solid fa-spinner fa-spin"
+            title="Loading history"
+          />
+        ) : historyInbounds.length === 0 ? (
+          <EmptyState
+            description="Inbound records will appear here after the first scan."
+            icon="fa-solid fa-clock-rotate-left"
+            title="No receiving history yet"
+          />
+        ) : (
+          <div className="receiving-list">
+            {historyInbounds.map((inbound) => {
+              const scanned = inbound.total_qr_sudah_discan ?? inbound.total_box_sudah_discan ?? 0;
+              const total = inbound.total_qr_expected ?? inbound.total_box_expected ?? 0;
+              const percent = total > 0 ? Math.min(100, Math.round((scanned / total) * 100)) : 0;
+
+              return (
+                <article className="receiving-item receiving-item--history" key={inbound.ID_inbound}>
+                  <div className="receiving-item__body">
+                    <div className="receiving-item__top">
+                      <div>
+                        <strong>INB-{inbound.ID_inbound}</strong>
+                        <p>{inbound.vendor?.nama_vendor || `Vendor ${inbound.ID_vendor || '-'}`}</p>
+                      </div>
+                      <StatusBadge
+                        label={formatStatusLabel(inbound.status_scan, 'menunggu')}
+                        tone={getStatusTone(inbound.status_scan)}
+                      />
+                    </div>
+                    <div className="receiving-item__meta">
+                      <span>{formatDateTime(inbound.timestamp_terima)}</span>
+                      <span>{inbound.nama_penerima || 'Receiving Officer'}</span>
+                    </div>
+                    <ProgressBar label={`${scanned} of ${total} scanned`} value={percent} />
+                  </div>
+                  <button
+                    type="button"
+                    className="receiving-btn receiving-btn--ghost"
+                    onClick={() => void loadShipmentContext(inbound.ID_outbound).then(() => setActiveTab('receive'))}
+                  >
+                    Open
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </SectionCard>
+    </div>
+  );
+
+  return (
+    <div className="receiving-mobile">
+      <WorkspaceHeader
+        actionLabel="Sign out"
+        onAction={() => setLogoutConfirmOpen(true)}
+        scopeLabel={assignedWarehouseLabel}
+        title={currentTitle}
+      />
+
+      {scanFeedback ? (
+        <FeedbackBanner
+          message={scanFeedback.message}
+          title={scanFeedback.type === 'success' ? 'Updated' : 'Action needed'}
+          tone={scanFeedback.type === 'success' ? 'success' : 'error'}
+        />
+      ) : null}
+
+      <main className={`receiving-mobile__content ${activeTab === 'receive' ? 'is-receive' : ''}`}>
+        {contextLoading && activeTab === 'receive' ? (
+          <div className="receiving-mobile__loading">Loading shipment...</div>
+        ) : null}
+        {activeTab === 'queue' ? renderQueueView() : null}
+        {activeTab === 'receive' ? renderReceiveView() : null}
+        {activeTab === 'history' ? renderHistoryView() : null}
       </main>
+
+      {activeTab !== 'receive' ? (
+      <BottomNav
+        items={navItems.map((item) => ({
+          ...item,
+          onClick: () => handleTabChange(item.value),
+        }))}
+        prominentValue="receive"
+        value={activeTab}
+      />
+      ) : null}
+
+      <ConfirmModal
+        open={logoutConfirmOpen}
+        title="Sign out?"
+        message="You will need to sign in again before continuing the receiving workflow."
+        cancelLabel="Stay here"
+        confirmLabel="Sign out"
+        onCancel={() => setLogoutConfirmOpen(false)}
+        onConfirm={handleLogout}
+      />
     </div>
   );
 };
