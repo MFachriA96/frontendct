@@ -222,14 +222,16 @@ describe('getShipmentStatusCounts', () => {
 });
 
 describe('buildQrDownloadLabel', () => {
-  it('includes product, detail id, and token in the downloaded QR label', () => {
+  it('includes product, box, qty, and token in the downloaded QR label', () => {
     const label = buildQrDownloadLabel({
       ID_outbound_detail: 42,
       nama_barang: 'Printer Housing Cover',
+      box_code: 'BOX-01',
+      expected_qty_in_box: 20,
       qr_token: 'QR-ABC-123',
     });
 
-    assert.equal(label, 'Printer Housing Cover | Detail #42 | Token: QR-ABC-123');
+    assert.equal(label, 'Printer Housing Cover | BOX-01 | Qty 20 | Token: QR-ABC-123');
   });
 });
 
