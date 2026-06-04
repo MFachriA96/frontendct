@@ -1,32 +1,52 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/api';
+import {
+  buildManagerDashboardHeroMetrics,
+  buildManagerDashboardPrimaryCards,
+  filterShipmentsByStatusGroup,
+  getDiscrepancyStatusCounts,
+  getShipmentStatusCounts,
+  normalizeAnalyticsResponse,
+  buildTrendChartData,
+  buildDiscrepancyByPartRows,
+  buildScheduleRiskCards,
+  buildActionQueueCards,
+  buildTopDiscrepancyPartHighlights,
+  summarizeAuditEvidence,
+} from '../utils/dashboardLogic';
+import AnalyticsTrendChart from '../components/AnalyticsTrendChart';
+import AppSidebar from '../components/navigation/AppSidebar';
+import ConfirmModal from '../components/ui/ConfirmModal';
+import { buildWarehouseScopedParams } from '../utils/receivingWorkspace';
 import './ManagerDashboard.css';
 
 const ManagerDashboard = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const [activeSidebar, setActiveSidebar] = useState('dashboard');
-  const [user, setUser] = useState(() => {
+  const [shipmentStatusFilter, setShipmentStatusFilter] = useState('total');
+  const [overviewVendorFilter, setOverviewVendorFilter] = useState('all');
+  const [overviewStatusFilter, setOverviewStatusFilter] = useState('all');
+  const [user] = useState(() => {
     const userData = localStorage.getItem('user');
     return userData ? JSON.parse(userData) : null;
   });
   const [loading, setLoading] = useState(false);
 
   // Data State
-  const [summary, setSummary] = useState({
-    total_outbound_today: 0,
-    total_inbound_today: 0,
-    total_discrepancy_today: 0,
-    pending_actions: 0,
-    discrepancy_by_status: { match: 0, mismatch: 0, missing: 0, over: 0 }
-  });
   const [shipments, setShipments] = useState([]);
   const [discrepancies, setDiscrepancies] = useState([]);
+  const [managerOverview, setManagerOverview] = useState(null);
   const [analyticsData, setAnalyticsData] = useState([]);
   const [reportsData, setReportsData] = useState([]);
   const [dashboardLoading, setDashboardLoading] = useState(true);
+  const [managerAnalytics, setManagerAnalytics] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState(null);
   const [secondaryLoading, setSecondaryLoading] = useState(false);
+  const [warehouses, setWarehouses] = useState([]);
+  const [warehouseScope, setWarehouseScope] = useState(() => (user?.ID_gudang ? 'default' : 'all'));
   
   // Modal State
   const [resolveModalData, setResolveModalData] = useState(null);
@@ -35,6 +55,7 @@ const ManagerDashboard = () => {
   const [shipmentDetailsLoading, setShipmentDetailsLoading] = useState(false);
   const [resolutionType, setResolutionType] = useState('approve'); // approve (mismatch report) or return
   const [resolutionNotes, setResolutionNotes] = useState('');
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
 
   const navigate = useNavigate();
 
@@ -43,22 +64,29 @@ const ManagerDashboard = () => {
     return Array.isArray(responseData) ? responseData : (responseData?.data || []);
   };
 
+  const normalizeOverviewResponse = (data) => data?.data || null;
+
   const fetchData = async ({ includeSecondary = true } = {}) => {
     const token = localStorage.getItem('token');
     const headers = { Authorization: `Bearer ${token}` };
+    const params = buildWarehouseScopedParams(warehouseScope);
 
     setDashboardLoading(true);
 
-    const [summaryResult, outboundResult, discrepancyResult] = await Promise.allSettled([
-      axios.get(`${API_BASE_URL}/api/dashboard/summary`, { headers }),
-      axios.get(`${API_BASE_URL}/api/outbound`, { headers }),
-      axios.get(`${API_BASE_URL}/api/discrepancy`, { headers })
+    const [overviewResult, outboundResult, discrepancyResult] = await Promise.allSettled([
+      axios.get(`${API_BASE_URL}/api/dashboard/manager-overview`, { headers, params }),
+      axios.get(`${API_BASE_URL}/api/outbound`, { headers, params }),
+      axios.get(`${API_BASE_URL}/api/discrepancy`, { headers, params })
     ]);
 
-    if (summaryResult.status === 'fulfilled') {
-      setSummary(summaryResult.value.data.data);
+    if (overviewResult.status === 'fulfilled') {
+      const overview = normalizeOverviewResponse(overviewResult.value.data);
+      setManagerOverview(overview);
+      setAnalyticsData(overview?.vendor_performance || []);
     } else {
-      console.error('Error fetching dashboard summary:', summaryResult.reason);
+      console.error('Error fetching manager overview:', overviewResult.reason);
+      setManagerOverview(null);
+      setAnalyticsData([]);
     }
 
     if (outboundResult.status === 'fulfilled') {
@@ -80,16 +108,9 @@ const ManagerDashboard = () => {
     }
 
     setSecondaryLoading(true);
-    const [performanceResult, reportsResult] = await Promise.allSettled([
-      axios.get(`${API_BASE_URL}/api/dashboard/vendor-performance`, { headers }),
+    const [reportsResult] = await Promise.allSettled([
       axios.get(`${API_BASE_URL}/api/dokumen-r1`, { headers })
     ]);
-
-    if (performanceResult.status === 'fulfilled') {
-      setAnalyticsData(performanceResult.value.data.data || []);
-    } else {
-      console.error('Error fetching vendor performance:', performanceResult.reason);
-    }
 
     if (reportsResult.status === 'fulfilled') {
       setReportsData(normalizeListResponse(reportsResult.value.data));
@@ -100,8 +121,55 @@ const ManagerDashboard = () => {
     setSecondaryLoading(false);
   };
 
+  const fetchManagerAnalytics = async (vendorId = null) => {
+    const token = localStorage.getItem('token');
+    const queryParams = new URLSearchParams();
+    const warehouseParams = buildWarehouseScopedParams(warehouseScope);
+
+    Object.entries(warehouseParams).forEach(([key, value]) => {
+      queryParams.set(key, value);
+    });
+
+    if (vendorId && vendorId !== 'all') {
+      queryParams.set('vendor_id', vendorId);
+    }
+
+    const params = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    setAnalyticsLoading(true);
+    setAnalyticsError(null);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/dashboard/manager-analytics${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setManagerAnalytics(normalizeAnalyticsResponse(res.data));
+    } catch (err) {
+      setAnalyticsError(err.response?.data?.message || err.message || 'Failed to load analytics.');
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+
+  const fetchWarehouses = async () => {
+    const token = localStorage.getItem('token');
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/master/gudang`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const payload = response.data?.data;
+      setWarehouses(Array.isArray(payload) ? payload : (payload?.data || []));
+    } catch (error) {
+      console.error('Error fetching warehouses:', error);
+      setWarehouses([]);
+    }
+  };
+
   useEffect(() => {
     fetchData();
+    void fetchManagerAnalytics();
+  }, [warehouseScope]);
+
+  useEffect(() => {
+    void fetchWarehouses();
   }, []);
 
   const handleLogout = async () => {
@@ -112,7 +180,9 @@ const ManagerDashboard = () => {
           headers: { Authorization: `Bearer ${token}` }
         });
       }
-    } catch (e) {}
+    } catch (error) {
+      console.error(error);
+    }
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     navigate('/login');
@@ -202,17 +272,60 @@ const ManagerDashboard = () => {
   const pendingDiscrepancies = discrepancies.filter(d => d.status !== 'match' && !hasCompletedAction(d));
   const resolvedDiscrepancies = discrepancies.filter(d => d.status !== 'match' && hasCompletedAction(d));
   const inboundReceivedItems = discrepancies.filter(d => d.status === 'match' || isAcceptedDiscrepancy(d));
-  const pendingCount = pendingDiscrepancies.length;
+  const shipmentCounts = managerOverview?.shipment_counts || getShipmentStatusCounts(shipments);
+  const pendingCount = Number(managerOverview?.discrepancy_breakdown?.pending_review ?? pendingDiscrepancies.length);
+  const filteredShipments = filterShipmentsByStatusGroup(shipments, shipmentStatusFilter);
+  const discrepancyStatusCounts = managerOverview?.discrepancy_breakdown?.by_status || getDiscrepancyStatusCounts(discrepancies);
+  const agingSla = managerOverview?.aging_sla || {
+    overdue_shipping: 0,
+    awaiting_verification: 0,
+  };
+  const pendingReviewQueue = Array.isArray(managerOverview?.pending_review_queue)
+    ? managerOverview.pending_review_queue
+    : pendingDiscrepancies.slice(0, 5);
+  const vendorOptions = Array.from(new Set(
+    shipments
+      .map((shipment) => shipment.vendor?.nama_vendor || (shipment.ID_vendor ? `Vendor ${shipment.ID_vendor}` : ''))
+      .filter(Boolean)
+  )).sort((a, b) => a.localeCompare(b));
+  const overviewFilteredShipments = shipments.filter((shipment) => {
+    const vendorName = shipment.vendor?.nama_vendor || (shipment.ID_vendor ? `Vendor ${shipment.ID_vendor}` : '');
+    const vendorMatches = overviewVendorFilter === 'all' || vendorName === overviewVendorFilter;
+    const statusMatches = overviewStatusFilter === 'all'
+      || (overviewStatusFilter === 'discrepancy' ? shipment.has_discrepancy : shipment.status === overviewStatusFilter);
+    return vendorMatches && statusMatches;
+  });
+  const analyticsModel = managerAnalytics || normalizeAnalyticsResponse(null);
+  const analyticsTrendData = buildTrendChartData(analyticsModel.trend_by_date);
+  const analyticsTopParts = buildTopDiscrepancyPartHighlights(analyticsModel.discrepancy_by_part, 4);
+  const analyticsRiskCards = buildScheduleRiskCards(analyticsModel.schedule_risk);
+  const analyticsActionCards = buildActionQueueCards(analyticsModel.action_queue);
+  const analyticsAuditSummary = summarizeAuditEvidence(analyticsModel.audit_evidence_summary);
+  const analyticsPreviewAvailable = Boolean(managerAnalytics) && !analyticsError;
+  const analyticsPending = analyticsLoading && !managerAnalytics;
+  const managerPrimaryCards = buildManagerDashboardPrimaryCards(shipmentCounts, pendingCount);
+  const managerHeroMetrics = buildManagerDashboardHeroMetrics({
+    shipmentCounts,
+    pendingCount,
+    analytics: analyticsModel,
+  });
+  const assignedWarehouse = user?.warehouse || null;
+  const warehouseScopeLabel = warehouseScope === 'default'
+    ? (assignedWarehouse?.nama_gudang || 'Assigned default warehouse')
+    : warehouseScope === 'all'
+      ? 'All warehouses'
+      : (warehouses.find((warehouse) => String(warehouse.ID_gudang) === String(warehouseScope))?.nama_gudang || `Warehouse ${warehouseScope}`);
 
   const getStatusBadge = (status) => {
     switch(status) {
       case 'verified': return <span className="status-badge status-success">Verified</span>;
+      case 'delivered': return <span className="status-badge status-success">Delivered</span>;
       case 'discrepancy': return <span className="status-badge status-danger">Discrepancy</span>;
       case 'in_transit': return <span className="status-badge status-warning">In Transit</span>;
       case 'draft': return <span className="status-badge status-pending">Draft</span>;
-      case 'submitted': return <span className="status-badge status-pending">Pending Scan</span>;
+      case 'submitted': return <span className="status-badge status-pending">Submitted</span>;
       case 'arrived': return <span className="status-badge status-warning">Arrived (Awaiting Manual Verification)</span>;
-      default: return <span className="status-badge status-pending">{status}</span>;
+      default: return <span className="status-badge status-pending">{String(status || 'Unknown').replace(/_/g, ' ')}</span>;
     }
   };
 
@@ -223,6 +336,14 @@ const ManagerDashboard = () => {
 
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  };
+
+  const formatRate = (value) => {
+    if (typeof value === 'number') {
+      return `${(value * 100).toFixed(1)}%`;
+    }
+
+    return value || '-';
   };
 
   const getShipmentTotals = (shipment) => {
@@ -246,9 +367,11 @@ const ManagerDashboard = () => {
       [],
       ['Summary'],
       ['Metric', 'Value'],
-      ['Total Shipments Today', summary.total_outbound_today],
-      ['Inbound Received Today', summary.total_inbound_today],
-      ['Items Matched', summary.discrepancy_by_status.match],
+      ['Total Shipments', shipmentCounts.total],
+      ['Shipping', shipmentCounts.shipping],
+      ['Delivered', shipmentCounts.delivered],
+      ['Shipment Discrepancy', shipmentCounts.discrepancy],
+      ['Items Matched', discrepancyStatusCounts.match],
       ['Pending Review', pendingCount],
       [],
       ['Shipment Overview'],
@@ -380,55 +503,77 @@ const ManagerDashboard = () => {
     setActiveTab('pending');
   };
 
+  const openManagerShipmentFilter = (filter) => {
+    setShipmentStatusFilter(filter);
+    setActiveSidebar('shipments');
+    setActiveTab('overview');
+  };
+
+  const openManagerPrimaryCard = (card) => {
+    if (card.key === 'pending_review') {
+      openDiscrepancyReview();
+      return;
+    }
+
+    openManagerShipmentFilter(card.actionKey || card.key);
+  };
+
   return (
     <div className="app-container manager-dashboard">
-      {/* Sidebar */}
-      <aside className="sidebar">
-        <div className="sidebar-header">
-          <div className="logo">
-            <i className="fa-solid fa-chart-line"></i>
-            <span>EpsonManager</span>
-          </div>
-        </div>
-        <nav className="sidebar-nav">
-          <div className="nav-section">OVERVIEW</div>
-          <a href="#" className={`nav-item ${activeSidebar === 'dashboard' ? 'active' : ''}`} onClick={(e) => {e.preventDefault(); openSidebarSection('dashboard');}}>
-            <i className="fa-solid fa-border-all"></i>
-            <span>Dashboard</span>
-          </a>
-          <a href="#" className={`nav-item ${activeSidebar === 'shipments' ? 'active' : ''}`} onClick={(e) => {e.preventDefault(); openSidebarSection('shipments');}}>
-            <i className="fa-solid fa-truck-fast"></i>
-            <span>Shipments</span>
-          </a>
-          
-          <div className="nav-section">VERIFICATION</div>
-          <a href="#" className={`nav-item ${activeSidebar === 'verification-results' ? 'active' : ''}`} onClick={(e) => {e.preventDefault(); openSidebarSection('verification-results');}}>
-            <i className="fa-solid fa-clipboard-check"></i>
-            <span>Verification Results</span>
-          </a>
-          <a href="#" className={`nav-item ${activeSidebar === 'discrepancy-review' ? 'active' : ''}`} onClick={(e) => {e.preventDefault(); openDiscrepancyReview();}}>
-            <i className="fa-solid fa-code-pull-request"></i>
-            <span>Discrepancy Review</span>
-            {pendingCount > 0 && <span className="badge badge-danger">{pendingCount}</span>}
-          </a>
-
-          <div className="nav-section">REPORTS</div>
-          <a href="#" className={`nav-item ${activeSidebar === 'analytics' ? 'active' : ''}`} onClick={(e) => {e.preventDefault(); setActiveSidebar('analytics');}}>
-            <i className="fa-solid fa-chart-pie"></i>
-            <span>Analytics</span>
-          </a>
-          <a href="#" className={`nav-item ${activeSidebar === 'reports' ? 'active' : ''}`} onClick={(e) => {e.preventDefault(); setActiveSidebar('reports');}}>
-            <i className="fa-solid fa-file-invoice"></i>
-            <span>Vendor Reports</span>
-          </a>
-        </nav>
-        <div className="sidebar-footer">
-          <a href="#" className="nav-item text-danger" onClick={(e) => {e.preventDefault(); handleLogout();}}>
-            <i className="fa-solid fa-right-from-bracket"></i>
-            <span>Logout</span>
-          </a>
-        </div>
-      </aside>
+      <AppSidebar
+        activeValue={activeSidebar}
+        brand="Evy"
+        brandMeta="Manager"
+        onSignOut={() => setLogoutConfirmOpen(true)}
+        sections={[
+          {
+            label: 'Overview',
+            items: [
+              {
+                value: 'dashboard',
+                label: 'Dashboard',
+                icon: 'fa-solid fa-border-all',
+                onClick: () => openSidebarSection('dashboard'),
+              },
+              {
+                value: 'shipments',
+                label: 'Shipments',
+                icon: 'fa-solid fa-truck-fast',
+                onClick: () => openSidebarSection('shipments'),
+              },
+            ],
+          },
+          {
+            label: 'Verification',
+            items: [
+              {
+                value: 'verification-results',
+                label: 'Verification results',
+                icon: 'fa-solid fa-clipboard-check',
+                onClick: () => openSidebarSection('verification-results'),
+              },
+              {
+                value: 'discrepancy-review',
+                label: 'Discrepancy review',
+                icon: 'fa-solid fa-code-pull-request',
+                badge: pendingCount > 0 ? pendingCount : null,
+                onClick: () => openDiscrepancyReview(),
+              },
+            ],
+          },
+          {
+            label: 'Reports',
+            items: [
+              {
+                value: 'reports',
+                label: 'Vendor reports',
+                icon: 'fa-solid fa-file-invoice',
+                onClick: () => setActiveSidebar('reports'),
+              },
+            ],
+          },
+        ]}
+      />
 
       {/* Main Content */}
       <main className="main-content">
@@ -467,51 +612,379 @@ const ManagerDashboard = () => {
                   <h1>Manager Dashboard</h1>
                   <p className="subtitle">Welcome back, {user ? user.nama.split(' ')[0] : 'Manager'}. Review and resolve all shipment discrepancies.</p>
                 </div>
-                <div className="header-actions">
+                <div className="header-actions" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div className="filter-group" style={{ minWidth: '220px' }}>
+                    <select
+                      className="filter-select"
+                      value={warehouseScope}
+                      onChange={(event) => setWarehouseScope(event.target.value)}
+                    >
+                      <option value="default">
+                        {assignedWarehouse?.nama_gudang ? `Default: ${assignedWarehouse.nama_gudang}` : 'Use assigned default'}
+                      </option>
+                      <option value="all">All Warehouses</option>
+                      {warehouses.map((warehouse) => (
+                        <option key={warehouse.ID_gudang} value={String(warehouse.ID_gudang)}>
+                          {warehouse.nama_gudang}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <button className="btn btn-outline" onClick={handleExportReport} disabled={dashboardLoading}>
                     <i className="fa-solid fa-download"></i> {dashboardLoading ? 'Preparing...' : 'Export Report'}
                   </button>
                 </div>
               </div>
 
+              <div className="card data-card" style={{ marginBottom: '1rem' }}>
+                <div className="table-toolbar" style={{ justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  <div className="table-summary-text">
+                    Warehouse context: <strong>{warehouseScopeLabel}</strong>
+                  </div>
+                  <div className="table-summary-text text-muted">
+                    Default scope comes from your account. Switch to a specific warehouse or all warehouses when needed.
+                  </div>
+                </div>
+              </div>
+
               {/* Stats KPI Row */}
               <div className="stats-kpi-container">
-                <div className="kpi-card border-blue">
-                  <div className="kpi-header">
-                    <span className="kpi-title">Total Shipments (Today)</span>
-                    <i className="fa-solid fa-box-open text-muted"></i>
-                  </div>
-                  <div className="kpi-value">{summary.total_outbound_today}</div>
-                  <div className="kpi-trend text-success"><i className="fa-solid fa-arrow-trend-up"></i> Ongoing tracking</div>
+                {managerPrimaryCards.map((card) => (
+                  <button
+                    key={card.key}
+                    type="button"
+                    className={`kpi-card kpi-card-action ${
+                      card.tone === 'blue'
+                        ? 'border-blue'
+                        : card.tone === 'info'
+                          ? 'border-info'
+                          : card.tone === 'success'
+                            ? 'border-success'
+                            : 'border-warning'
+                    }`}
+                    onClick={() => openManagerPrimaryCard(card)}
+                  >
+                    <div className="kpi-header">
+                      <span className="kpi-title">{card.label}</span>
+                      <i className={`fa-solid text-muted ${
+                        card.key === 'total'
+                          ? 'fa-box-open'
+                          : card.key === 'shipping'
+                            ? 'fa-truck-fast'
+                            : card.key === 'delivered'
+                              ? 'fa-circle-check'
+                              : 'fa-triangle-exclamation'
+                      }`}></i>
+                    </div>
+                    <div className={`kpi-value ${card.key === 'pending_review' && card.value > 0 ? 'text-warning' : ''}`}>{card.value}</div>
+                    <div className={`kpi-trend ${card.key === 'pending_review' && card.value > 0 ? 'text-danger' : 'text-muted'}`}>
+                      {card.key === 'total' ? <i className="fa-solid fa-arrow-trend-up"></i> : null} {card.description}
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              <div className="manager-spotlight-card">
+                <div className="manager-spotlight-copy">
+                  <span className="manager-spotlight-eyebrow">Highlighted now</span>
+                  <h2>Shipment discrepancy dan overdue shipping tetap jadi fokus pertama manager.</h2>
+                  <p>Dashboard utama sekarang menaruh trend analytics di depan, tapi tetap menjaga queue review dan breakdown vendor tetap cepat dipindai.</p>
                 </div>
-                
-                <div className="kpi-card border-success">
-                  <div className="kpi-header">
-                    <span className="kpi-title">Items Matched</span>
-                    <i className="fa-regular fa-circle-check text-muted"></i>
+                <div className="manager-spotlight-metrics">
+                  <div className="manager-spotlight-metric">
+                    <span>Shipment discrepancy</span>
+                    <strong>{shipmentCounts.discrepancy}</strong>
                   </div>
-                  <div className="kpi-value">{summary.discrepancy_by_status.match} <span className="kpi-unit">boxes</span></div>
-                  <div className="kpi-trend text-muted">Across all verified shipments</div>
+                  <div className="manager-spotlight-metric">
+                    <span>Overdue shipping</span>
+                    <strong>{agingSla.overdue_shipping}</strong>
+                  </div>
+                </div>
+                <button className="btn btn-outline manager-spotlight-action" onClick={() => fetchManagerAnalytics()} disabled={analyticsLoading}>
+                  {analyticsLoading ? 'Syncing...' : 'Refresh insight'}
+                </button>
+              </div>
+
+              <div className="insight-card manager-hero-card manager-hero-card--standalone">
+                <div className="insight-card-header">
+                  <div>
+                    <h2>Shipment & Discrepancy Trend</h2>
+                    <p>Trend utama manager sekarang langsung menyorot shipment bermasalah, backlog review, dan bukti audit tanpa pindah halaman.</p>
+                  </div>
+                  <button className="btn btn-outline" onClick={() => fetchManagerAnalytics()} disabled={analyticsLoading}>
+                    {analyticsLoading ? 'Syncing...' : 'Refresh insight'}
+                  </button>
+                </div>
+                {analyticsPending ? (
+                  <>
+                    <div className="manager-hero-chip-row">
+                      {Array.from({ length: 3 }).map((_, index) => (
+                        <div key={index} className="manager-hero-chip manager-skeleton-card">
+                          <span className="manager-skeleton-line short"></span>
+                          <strong className="manager-skeleton-line value"></strong>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="manager-trend-panel manager-trend-panel-hero manager-skeleton-card manager-skeleton-chart"></div>
+                  </>
+                ) : (
+                  <>
+                    <div className="manager-hero-chip-row">
+                      {managerHeroMetrics.map((metric) => (
+                        <div key={metric.key} className={`manager-hero-chip tone-${metric.tone}`}>
+                          <span>{metric.label}</span>
+                          <strong>{metric.value}</strong>
+                        </div>
+                      ))}
+                    </div>
+                    {analyticsPreviewAvailable && analyticsModel.trend_by_date.length > 0 ? (
+                      <div className="manager-trend-panel manager-trend-panel-hero">
+                        <AnalyticsTrendChart data={analyticsTrendData} theme="dark" />
+                      </div>
+                    ) : (
+                      <div className="manager-activity-empty">Trend analytics belum tersedia.</div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="manager-insight-grid mt-4">
+                <div className="insight-card">
+                  <div className="insight-card-header">
+                    <div>
+                      <h2>Audit Evidence Coverage</h2>
+                      <p>Bukti digital lebih relevan untuk audit dan klaim dibanding mengulang distribusi status yang sudah ada di KPI.</p>
+                    </div>
+                  </div>
+                  {analyticsPending ? (
+                    <div className="queue-signal-list">
+                      {Array.from({ length: 4 }).map((_, index) => (
+                        <div key={index} className="queue-signal-item manager-skeleton-card manager-skeleton-signal"></div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="queue-signal-list">
+                      <div className="queue-signal-item">
+                        <span>With Photo</span>
+                        <strong>{analyticsAuditSummary.withPhoto}</strong>
+                      </div>
+                      <div className="queue-signal-item">
+                        <span>Without Photo</span>
+                        <strong>{analyticsAuditSummary.withoutPhoto}</strong>
+                      </div>
+                      <div className="queue-signal-item">
+                        <span>With Timestamp</span>
+                        <strong>{analyticsAuditSummary.withTimestamp}</strong>
+                      </div>
+                      <div className="queue-signal-item">
+                        <span>With Location</span>
+                        <strong>{analyticsAuditSummary.withLocation}</strong>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                <div className="kpi-card border-warning">
-                  <div className="kpi-header">
-                    <span className="kpi-title">Pending Review</span>
-                    <i className="fa-solid fa-triangle-exclamation text-muted"></i>
+                <div className="insight-card">
+                  <div className="insight-card-header">
+                    <div>
+                      <h2>Discrepancy Breakdown</h2>
+                      <p>Operational view of verification outcomes.</p>
+                    </div>
                   </div>
-                  <div className={`kpi-value ${pendingCount > 0 ? 'text-warning' : ''}`}>{pendingCount} <span className="kpi-unit">discrepancies</span></div>
-                  <div className={`kpi-trend ${pendingCount > 0 ? 'text-danger' : 'text-muted'}`}>
-                    {pendingCount > 0 ? <><i className="fa-solid fa-circle-exclamation"></i> Requires immediate action</> : 'All clear for now'}
+                  <div className="breakdown-grid">
+                    <div>
+                      <span>Match</span>
+                      <strong>{discrepancyStatusCounts.match || 0}</strong>
+                    </div>
+                    <div>
+                      <span>Mismatch</span>
+                      <strong>{discrepancyStatusCounts.mismatch || 0}</strong>
+                    </div>
+                    <div>
+                      <span>Missing</span>
+                      <strong>{discrepancyStatusCounts.missing || 0}</strong>
+                    </div>
+                    <div>
+                      <span>Over</span>
+                      <strong>{discrepancyStatusCounts.over || 0}</strong>
+                    </div>
                   </div>
                 </div>
 
-                <div className="kpi-card border-info">
-                  <div className="kpi-header">
-                    <span className="kpi-title">Inbound Received</span>
-                    <i className="fa-solid fa-truck-ramp-box text-muted"></i>
+                <div className="insight-card">
+                  <div className="insight-card-header">
+                    <div>
+                      <h2>Action Queue</h2>
+                      <p>Operational backlog that still needs a manager decision.</p>
+                    </div>
                   </div>
-                  <div className="kpi-value">{summary.total_inbound_today} <span className="kpi-unit">today</span></div>
-                  <div className="kpi-trend text-muted">Total physical inbound today</div>
+                  <div className="queue-signal-list">
+                    {analyticsPending ? (
+                      Array.from({ length: 4 }).map((_, index) => (
+                        <div key={index} className="queue-signal-item manager-skeleton-card manager-skeleton-signal"></div>
+                      ))
+                    ) : analyticsPreviewAvailable ? (
+                      analyticsActionCards.map((card) => (
+                        <div key={card.key} className="queue-signal-item">
+                          <span>{card.label}</span>
+                          <strong>{card.value}</strong>
+                        </div>
+                      ))
+                    ) : (
+                      <>
+                        <div className="queue-signal-item">
+                          <span>Pending Review</span>
+                          <strong>{pendingCount}</strong>
+                        </div>
+                        <div className="queue-signal-item">
+                          <span>Awaiting Verification</span>
+                          <strong>{agingSla.awaiting_verification}</strong>
+                        </div>
+                        <div className="queue-signal-item">
+                          <span>Overdue Shipping</span>
+                          <strong>{agingSla.overdue_shipping}</strong>
+                        </div>
+                        <div className="queue-signal-item">
+                          <span>Queue Preview</span>
+                          <strong>{pendingReviewQueue.length}</strong>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="insight-card">
+                  <div className="insight-card-header">
+                    <div>
+                      <h2>Pending Review Queue</h2>
+                      <p>Queue discrepancy yang paling perlu keputusan manager sekarang.</p>
+                    </div>
+                  </div>
+                  {pendingReviewQueue.length > 0 ? (
+                    <div className="vendor-performance-mini-list">
+                      {pendingReviewQueue.map((item) => (
+                        <div key={item.ID_discrepancy} className="vendor-performance-mini-item">
+                          <div>
+                            <strong>{item.outbound_detail?.outbound?.vendor?.nama_vendor || `Vendor ${item.ID_vendor || '-'}`}</strong>
+                            <span>{item.outbound_detail?.barang?.nama_barang || `Outbound Detail ${item.ID_outbound_detail || '-'}`}</span>
+                          </div>
+                          <div>
+                            <strong>{item.status || 'pending'}</strong>
+                            <span>{formatDateTime(item.detected_at)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="manager-activity-empty">Tidak ada discrepancy yang menunggu review.</div>
+                  )}
+                </div>
+
+                <div className="insight-card">
+                  <div className="insight-card-header">
+                    <div>
+                      <h2>Vendor Performance Snapshot</h2>
+                      <p>Quick read of discrepancy rate by vendor.</p>
+                    </div>
+                    {secondaryLoading && <span className="status-badge status-pending">Syncing</span>}
+                  </div>
+                  {analyticsData.length > 0 ? (
+                    <div className="vendor-performance-mini-list">
+                      {analyticsData.slice(0, 3).map((item) => (
+                        <div key={item.vendor_id || item.vendor_name || item.vendor} className="vendor-performance-mini-item">
+                          <div>
+                            <strong>{item.vendor_name || item.vendor || `Vendor ${item.vendor_id || '-'}`}</strong>
+                            <span>{item.shipments_with_discrepancy ?? item.total_discrepancies ?? 0} discrepancy shipments</span>
+                          </div>
+                          <div>
+                            <strong>{formatRate(item.discrepancy_rate ?? item.rate)}</strong>
+                            <span>{item.total_shipments} total shipments</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="manager-activity-empty">
+                      {secondaryLoading ? 'Loading vendor performance...' : 'No vendor performance data available yet.'}
+                    </div>
+                  )}
+                </div>
+
+                <div className="insight-card">
+                  <div className="insight-card-header">
+                    <div>
+                      <h2>Part Paling Sering Selisih</h2>
+                      <p>Komponen yang paling sering memicu mismatch, missing, atau over.</p>
+                    </div>
+                  </div>
+                  {analyticsPending ? (
+                    <div className="vendor-performance-mini-list">
+                      {Array.from({ length: 3 }).map((_, index) => (
+                        <div key={index} className="vendor-performance-mini-item manager-skeleton-card manager-skeleton-row"></div>
+                      ))}
+                    </div>
+                  ) : analyticsPreviewAvailable && analyticsTopParts.length > 0 ? (
+                    <div className="vendor-performance-mini-list">
+                      {analyticsTopParts.map((part) => (
+                        <div key={part.part_id || part.part_name} className="vendor-performance-mini-item">
+                          <div>
+                            <strong>{part.part_name || `Part ${part.part_id || '-'}`}</strong>
+                            <span>Mismatch {part.mismatch || 0} | Missing {part.missing || 0} | Over {part.over || 0}</span>
+                          </div>
+                          <div>
+                            <strong>{part.total_non_match || 0}</strong>
+                            <span>Total non-match</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="manager-activity-empty">No discrepancy-by-part data available yet.</div>
+                  )}
+                </div>
+
+                <div className="insight-card">
+                  <div className="insight-card-header">
+                    <div>
+                      <h2>Schedule Risk & Audit Coverage</h2>
+                      <p>Shipment yang berisiko terlambat dan sejauh mana bukti audit sudah tersedia.</p>
+                    </div>
+                  </div>
+                  <div className="queue-signal-list">
+                    {analyticsPending ? (
+                      Array.from({ length: 6 }).map((_, index) => (
+                        <div key={index} className="queue-signal-item manager-skeleton-card manager-skeleton-signal"></div>
+                      ))
+                    ) : analyticsPreviewAvailable ? (
+                      <>
+                        {analyticsRiskCards.slice(0, 4).map((card) => (
+                          <div key={card.key} className="queue-signal-item">
+                            <span>{card.label}</span>
+                            <strong>{card.value}</strong>
+                          </div>
+                        ))}
+                        <div className="queue-signal-item">
+                          <span>With Photo</span>
+                          <strong>{analyticsAuditSummary.withPhoto}</strong>
+                        </div>
+                        <div className="queue-signal-item">
+                          <span>With Timestamp</span>
+                          <strong>{analyticsAuditSummary.withTimestamp}</strong>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="queue-signal-item">
+                          <span>Overdue Shipping</span>
+                          <strong>{agingSla.overdue_shipping}</strong>
+                        </div>
+                        <div className="queue-signal-item">
+                          <span>Awaiting Verification</span>
+                          <strong>{agingSla.awaiting_verification}</strong>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -537,14 +1010,20 @@ const ManagerDashboard = () => {
                   <div className="tab-content active" id="tab-overview">
                     <div className="table-toolbar">
                       <div className="filter-group">
-                        <select className="form-control filter-select">
-                          <option>All Vendors</option>
+                        <select className="form-control filter-select" value={overviewVendorFilter} onChange={(e) => setOverviewVendorFilter(e.target.value)}>
+                          <option value="all">All Vendors</option>
+                          {vendorOptions.map((vendor) => (
+                            <option key={vendor} value={vendor}>{vendor}</option>
+                          ))}
                         </select>
-                        <select className="form-control filter-select">
-                          <option>All Statuses</option>
-                          <option>Verified</option>
-                          <option>Pending Scan</option>
-                          <option>Discrepancy</option>
+                        <select className="form-control filter-select" value={overviewStatusFilter} onChange={(e) => setOverviewStatusFilter(e.target.value)}>
+                          <option value="all">All Statuses</option>
+                          <option value="draft">Draft</option>
+                          <option value="submitted">Submitted</option>
+                          <option value="in_transit">In Transit</option>
+                          <option value="arrived">Arrived</option>
+                          <option value="verified">Verified</option>
+                          <option value="discrepancy">Has Discrepancy</option>
                         </select>
                       </div>
                     </div>
@@ -563,14 +1042,14 @@ const ManagerDashboard = () => {
                         <tbody>
                           {dashboardLoading ? (
                             <tr><td colSpan="5" className="text-center" style={{ padding: '24px' }}><i className="fa-solid fa-spinner fa-spin"></i> Loading shipments...</td></tr>
-                          ) : shipments.map(shp => (
-                            <tr key={shp.ID_outbound} className={shp.status === 'discrepancy' ? 'highlight-row' : ''}>
+                          ) : overviewFilteredShipments.map(shp => (
+                            <tr key={shp.ID_outbound} className={shp.has_discrepancy ? 'highlight-row' : ''}>
                               <td className="font-medium">SHP-{shp.ID_outbound}</td>
                               <td>{shp.vendor?.nama_vendor || `Vendor ${shp.ID_vendor}`}</td>
                               <td>{getStatusBadge(shp.status)}</td>
                               <td className="text-muted">{formatDateTime(shp.created_at)}</td>
                               <td>
-                                {shp.status === 'discrepancy' ? (
+                                {shp.has_discrepancy ? (
                                   <button className="btn btn-sm btn-primary" onClick={() => setActiveTab('pending')}>Review</button>
                                 ) : (
                                   <button className="btn btn-sm btn-outline" onClick={() => handleViewShipmentDetails(shp)}>Details</button>
@@ -578,8 +1057,8 @@ const ManagerDashboard = () => {
                               </td>
                             </tr>
                           ))}
-                          {!dashboardLoading && shipments.length === 0 && (
-                            <tr><td colSpan="5" className="text-center" style={{ padding: '20px' }}>No shipments found.</td></tr>
+                          {!dashboardLoading && overviewFilteredShipments.length === 0 && (
+                            <tr><td colSpan="5" className="text-center" style={{ padding: '20px' }}>No shipments found for the selected filters.</td></tr>
                           )}
                         </tbody>
                       </table>
@@ -755,15 +1234,15 @@ const ManagerDashboard = () => {
               <div className="manager-section-grid">
                 <div className="section-summary-card">
                   <span>Total Shipments</span>
-                  <strong>{shipments.length}</strong>
+                  <strong>{shipmentCounts.total}</strong>
                 </div>
                 <div className="section-summary-card">
-                  <span>Pending Scan</span>
-                  <strong>{shipments.filter(shp => shp.status === 'submitted').length}</strong>
+                  <span>Shipping</span>
+                  <strong>{shipmentCounts.shipping}</strong>
                 </div>
                 <div className="section-summary-card">
-                  <span>Needs Attention</span>
-                  <strong>{shipments.filter(shp => shp.status === 'discrepancy').length}</strong>
+                  <span>Discrepancy</span>
+                  <strong>{shipmentCounts.discrepancy}</strong>
                 </div>
               </div>
               <div className="card data-card mt-4">
@@ -772,6 +1251,12 @@ const ManagerDashboard = () => {
                     <h2>Shipment Directory</h2>
                     <p>Use Details to inspect vendor, schedule, origin, and item quantities.</p>
                   </div>
+                  <select className="form-control filter-select" value={shipmentStatusFilter} onChange={(e) => setShipmentStatusFilter(e.target.value)}>
+                    <option value="total">All Shipments</option>
+                    <option value="shipping">Shipping</option>
+                    <option value="delivered">Delivered</option>
+                    <option value="discrepancy">Discrepancy</option>
+                  </select>
                 </div>
                 <div className="table-responsive">
                   <table className="data-table">
@@ -788,7 +1273,7 @@ const ManagerDashboard = () => {
                     <tbody>
                       {dashboardLoading ? (
                         <tr><td colSpan="6" className="text-center" style={{ padding: '32px' }}><i className="fa-solid fa-spinner fa-spin"></i> Loading shipments...</td></tr>
-                      ) : shipments.map(shp => (
+                      ) : filteredShipments.map(shp => (
                         <tr key={shp.ID_outbound}>
                           <td className="font-medium">{shp.no_pengiriman || `SHP-${shp.ID_outbound}`}</td>
                           <td>{shp.vendor?.nama_vendor || `Vendor ${shp.ID_vendor}`}</td>
@@ -798,8 +1283,8 @@ const ManagerDashboard = () => {
                           <td><button className="btn btn-sm btn-outline" onClick={() => handleViewShipmentDetails(shp)}>Details</button></td>
                         </tr>
                       ))}
-                      {!dashboardLoading && shipments.length === 0 && (
-                        <tr><td colSpan="6" className="text-center" style={{ padding: '32px' }}>No shipments found.</td></tr>
+                      {!dashboardLoading && filteredShipments.length === 0 && (
+                        <tr><td colSpan="6" className="text-center" style={{ padding: '32px' }}>No shipments found for this status.</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -819,15 +1304,15 @@ const ManagerDashboard = () => {
               <div className="manager-section-grid">
                 <div className="section-summary-card">
                   <span>Matched</span>
-                  <strong>{summary.discrepancy_by_status.match || 0}</strong>
+                  <strong>{discrepancyStatusCounts.match || 0}</strong>
                 </div>
                 <div className="section-summary-card">
                   <span>Mismatched</span>
-                  <strong>{summary.discrepancy_by_status.mismatch || 0}</strong>
+                  <strong>{discrepancyStatusCounts.mismatch || 0}</strong>
                 </div>
                 <div className="section-summary-card">
                   <span>Missing / Over</span>
-                  <strong>{(summary.discrepancy_by_status.missing || 0) + (summary.discrepancy_by_status.over || 0)}</strong>
+                  <strong>{(discrepancyStatusCounts.missing || 0) + (discrepancyStatusCounts.over || 0)}</strong>
                 </div>
               </div>
               <div className="verification-results-grid mt-4">
@@ -924,59 +1409,235 @@ const ManagerDashboard = () => {
             </>
           )}
 
-          {activeSidebar === 'analytics' && (
+          {false && (
             <>
               <div className="page-header">
                 <div>
                   <h1>Analytics & Vendor Performance</h1>
-                  <p className="subtitle">Track system accuracy and vendor reliability metrics.</p>
+                  <p className="subtitle">
+                    Operational analytics by dispatch date.{' '}
+                    {managerAnalytics?.generated_at && (
+                      <span className="text-muted">Generated {formatDateTime(managerAnalytics.generated_at)}</span>
+                    )}
+                  </p>
+                </div>
+                <div className="header-actions">
+                  <select
+                    className="form-control filter-select"
+                    value="all"
+                    onChange={(e) => fetchManagerAnalytics(e.target.value)}
+                    disabled={analyticsLoading}
+                  >
+                    <option value="all">All Vendors</option>
+                    {(managerAnalytics?.discrepancy_by_vendor || []).map((v) => (
+                      <option key={v.vendor_id} value={String(v.vendor_id)}>{v.vendor_name}</option>
+                    ))}
+                  </select>
+                  <button className="btn btn-outline" onClick={() => fetchManagerAnalytics()} disabled={analyticsLoading}>
+                    <i className="fa-solid fa-rotate"></i> Refresh
+                  </button>
                 </div>
               </div>
-              <div className="card data-card">
-                <div className="card-header" style={{ padding: '1.5rem', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)' }}>
-                  <h2 style={{ fontSize: '1.1rem' }}>Vendor Discrepancy Rates</h2>
+
+              {analyticsLoading && (
+                <div className="text-center" style={{ padding: '48px' }}>
+                  <i className="fa-solid fa-spinner fa-spin"></i> Loading analytics...
                 </div>
-                <div className="table-responsive" style={{ padding: '1rem' }}>
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Vendor Name</th>
-                        <th className="text-center">Total Shipments</th>
-                        <th className="text-center">Shipments w/ Discrepancy</th>
-                        <th>Error Rate</th>
-                        <th>Performance Label</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {secondaryLoading && analyticsData.length === 0 ? (
-                        <tr><td colSpan="5" className="text-center" style={{ padding: '20px' }}><i className="fa-solid fa-spinner fa-spin"></i> Loading analytics...</td></tr>
-                      ) : analyticsData.map((data, idx) => (
-                        <tr key={idx}>
-                          <td className="font-medium">{data.vendor}</td>
-                          <td className="text-center">{data.total_shipments}</td>
-                          <td className="text-center">{data.total_discrepancies}</td>
-                          <td>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                              <div style={{ width: '100px', height: '8px', backgroundColor: 'var(--bg-main)', borderRadius: '4px', overflow: 'hidden' }}>
-                                <div style={{ width: data.rate, height: '100%', backgroundColor: parseFloat(data.rate) > 10 ? 'var(--danger)' : 'var(--success)' }}></div>
-                              </div>
-                              <span className="font-bold">{data.rate}</span>
-                            </div>
-                          </td>
-                          <td>
-                            {parseFloat(data.rate) === 0 ? <span className="status-badge status-success">Excellent</span> : 
-                             parseFloat(data.rate) > 10 ? <span className="status-badge status-danger">Needs Review</span> :
-                             <span className="status-badge status-warning">Acceptable</span>}
-                          </td>
-                        </tr>
-                      ))}
-                      {!secondaryLoading && analyticsData.length === 0 && (
-                        <tr><td colSpan="5" className="text-center" style={{ padding: '20px' }}>No analytics data available yet.</td></tr>
-                      )}
-                    </tbody>
-                  </table>
+              )}
+
+              {analyticsError && !analyticsLoading && (
+                <div className="card data-card" style={{ padding: '2rem', textAlign: 'center', color: 'var(--danger)' }}>
+                  <i className="fa-solid fa-circle-exclamation"></i> {analyticsError}
+                  <div style={{ marginTop: '1rem' }}>
+                    <button className="btn btn-outline" onClick={() => fetchManagerAnalytics()}>Retry</button>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {!analyticsLoading && !analyticsError && managerAnalytics && (() => {
+                const { schedule_risk, action_queue, audit_evidence_summary, discrepancy_by_part, discrepancy_by_vendor, trend_by_date } = managerAnalytics;
+                const partRows = buildDiscrepancyByPartRows(discrepancy_by_part);
+                const auditSummary = summarizeAuditEvidence(audit_evidence_summary);
+                const trendData = buildTrendChartData(trend_by_date);
+
+                return (
+                  <>
+                    {/* Signal Cards */}
+                    <div className="manager-section-grid">
+                      <div className="section-summary-card">
+                        <span>Dispatch Today</span>
+                        <strong>{schedule_risk.dispatch_today}</strong>
+                      </div>
+                      <div className="section-summary-card">
+                        <span>Arrival Today</span>
+                        <strong>{schedule_risk.arrival_today}</strong>
+                      </div>
+                      <div className="section-summary-card">
+                        <span>Overdue Shipping</span>
+                        <strong style={{ color: schedule_risk.overdue_shipping > 0 ? 'var(--danger)' : undefined }}>{schedule_risk.overdue_shipping}</strong>
+                      </div>
+                      <div className="section-summary-card">
+                        <span>Awaiting Verification</span>
+                        <strong>{schedule_risk.arrived_awaiting_verification}</strong>
+                      </div>
+                      <div className="section-summary-card">
+                        <span>Draft Pending Submit</span>
+                        <strong>{action_queue.draft_pending_submit}</strong>
+                      </div>
+                      <div className="section-summary-card">
+                        <span>QR Not Ready</span>
+                        <strong>{action_queue.submitted_qr_not_ready}</strong>
+                      </div>
+                      <div className="section-summary-card">
+                        <span>Pending Discrepancy Review</span>
+                        <strong style={{ color: action_queue.pending_discrepancy_review > 0 ? 'var(--danger)' : undefined }}>{action_queue.pending_discrepancy_review}</strong>
+                      </div>
+                    </div>
+
+                    {/* Trend Chart */}
+                    <div className="card data-card mt-4">
+                      <div className="card-header" style={{ padding: '1.5rem 1.5rem 0', borderBottom: 'none' }}>
+                        <h2 style={{ fontSize: '1.1rem' }}>Shipment Trend</h2>
+                        <p className="text-muted" style={{ fontSize: '0.85rem' }}>By dispatch date · latest 30 points</p>
+                      </div>
+                      <div style={{ padding: '1rem 1.5rem 1.5rem' }}>
+                        {trend_by_date.length > 0 ? (
+                          <AnalyticsTrendChart data={trendData} />
+                        ) : (
+                          <div className="manager-activity-empty">No trend data available yet.</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Discrepancy by Part */}
+                    <div className="card data-card mt-4">
+                      <div className="card-header" style={{ padding: '1.5rem', borderBottom: '1px solid var(--border-color)' }}>
+                        <h2 style={{ fontSize: '1.1rem' }}>Discrepancy by Part</h2>
+                      </div>
+                      <div className="table-responsive" style={{ padding: '1rem' }}>
+                        {partRows.length > 0 ? (
+                          <table className="data-table">
+                            <thead>
+                              <tr>
+                                <th>Part</th>
+                                <th className="text-center">Mismatch</th>
+                                <th className="text-center">Missing</th>
+                                <th className="text-center">Over</th>
+                                <th>Total</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {partRows.map((row) => {
+                                const maxTotal = partRows[0].total_non_match || 1;
+                                const barPct = Math.round((row.total_non_match / maxTotal) * 100);
+                                return (
+                                  <tr key={row.part_id}>
+                                    <td className="font-medium">{row.part_name}</td>
+                                    <td className="text-center">{row.mismatch}</td>
+                                    <td className="text-center">{row.missing}</td>
+                                    <td className="text-center">{row.over}</td>
+                                    <td>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <div style={{ width: '80px', height: '8px', backgroundColor: 'var(--bg-main)', borderRadius: '4px', overflow: 'hidden' }}>
+                                          <div style={{ width: `${barPct}%`, height: '100%', backgroundColor: 'var(--danger)' }}></div>
+                                        </div>
+                                        <strong>{row.total_non_match}</strong>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        ) : (
+                          <div className="manager-activity-empty">No part discrepancy data available.</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Vendor Performance */}
+                    <div className="card data-card mt-4">
+                      <div className="card-header" style={{ padding: '1.5rem', borderBottom: '1px solid var(--border-color)' }}>
+                        <h2 style={{ fontSize: '1.1rem' }}>Vendor Performance</h2>
+                      </div>
+                      <div className="table-responsive" style={{ padding: '1rem' }}>
+                        {discrepancy_by_vendor.length > 0 ? (
+                          <table className="data-table">
+                            <thead>
+                              <tr>
+                                <th>Vendor</th>
+                                <th className="text-center">Total Shipments</th>
+                                <th className="text-center">w/ Discrepancy</th>
+                                <th>Rate</th>
+                                <th>Label</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {discrepancy_by_vendor.map((v) => {
+                                const pct = (v.discrepancy_rate || 0) * 100;
+                                return (
+                                  <tr key={v.vendor_id}>
+                                    <td className="font-medium">{v.vendor_name}</td>
+                                    <td className="text-center">{v.total_shipments}</td>
+                                    <td className="text-center">{v.shipments_with_discrepancy}</td>
+                                    <td>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <div style={{ width: '100px', height: '8px', backgroundColor: 'var(--bg-main)', borderRadius: '4px', overflow: 'hidden' }}>
+                                          <div style={{ width: `${Math.min(pct, 100)}%`, height: '100%', backgroundColor: pct > 10 ? 'var(--danger)' : 'var(--success)' }}></div>
+                                        </div>
+                                        <span className="font-bold">{formatRate(v.discrepancy_rate)}</span>
+                                      </div>
+                                    </td>
+                                    <td>
+                                      {pct === 0
+                                        ? <span className="status-badge status-success">Excellent</span>
+                                        : pct > 10
+                                          ? <span className="status-badge status-danger">Needs Review</span>
+                                          : <span className="status-badge status-warning">Acceptable</span>}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        ) : (
+                          <div className="manager-activity-empty">No vendor performance data available.</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Audit Evidence */}
+                    <div className="card data-card mt-4">
+                      <div className="card-header" style={{ padding: '1.5rem', borderBottom: '1px solid var(--border-color)' }}>
+                        <h2 style={{ fontSize: '1.1rem' }}>Audit Evidence Summary</h2>
+                      </div>
+                      <div style={{ padding: '1.5rem' }}>
+                        <div className="manager-section-grid">
+                          <div className="section-summary-card">
+                            <span>With Photo <span className="status-badge status-pending" style={{ fontSize: '0.7rem' }}>partial</span></span>
+                            <strong>{auditSummary.withPhoto} <span className="text-muted" style={{ fontSize: '0.85rem' }}>({auditSummary.photoPct}%)</span></strong>
+                          </div>
+                          <div className="section-summary-card">
+                            <span>Without Photo</span>
+                            <strong style={{ color: auditSummary.withoutPhoto > 0 ? 'var(--warning)' : undefined }}>{auditSummary.withoutPhoto}</strong>
+                          </div>
+                          <div className="section-summary-card">
+                            <span>With Location <span className="status-badge status-pending" style={{ fontSize: '0.7rem' }}>partial</span></span>
+                            <strong>{auditSummary.withLocation} <span className="text-muted" style={{ fontSize: '0.85rem' }}>({auditSummary.locationPct}%)</span></strong>
+                          </div>
+                          <div className="section-summary-card">
+                            <span>With Timestamp</span>
+                            <strong>{auditSummary.withTimestamp}</strong>
+                          </div>
+                        </div>
+                        <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '0.75rem' }}>
+                          Photo = <code>tabel_foto</code> records only. Location = warehouse context, not GPS coordinates.
+                        </p>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
             </>
           )}
 
@@ -1036,6 +1697,16 @@ const ManagerDashboard = () => {
           )}
         </div>
       </main>
+
+      <ConfirmModal
+        open={logoutConfirmOpen}
+        title="Sign out?"
+        message="You will need to sign in again before continuing manager review and reporting."
+        cancelLabel="Stay here"
+        confirmLabel="Sign out"
+        onCancel={() => setLogoutConfirmOpen(false)}
+        onConfirm={handleLogout}
+      />
 
       {/* Resolution Modal Overlay */}
       {resolveModalData && (
@@ -1264,8 +1935,8 @@ const ManagerDashboard = () => {
             </div>
             <div className="modal-footer">
               <button className="btn btn-outline" onClick={() => setShipmentModalData(null)}>Close</button>
-              {shipmentModalData.status === 'discrepancy' && (
-                <button className="btn btn-primary" onClick={() => { setShipmentModalData(null); setActiveTab('pending'); }}>
+              {shipmentModalData.has_discrepancy && (
+                <button className="btn btn-primary" onClick={() => { setShipmentModalData(null); openDiscrepancyReview(); }}>
                   Review Discrepancy
                 </button>
               )}

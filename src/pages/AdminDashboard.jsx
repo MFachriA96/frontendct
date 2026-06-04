@@ -1,7 +1,21 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import AdminModal from '../components/admin/AdminModal';
+import AdminPageHeader from '../components/admin/AdminPageHeader';
+import AdminPanel from '../components/admin/AdminPanel';
+import AdminSidebar from '../components/admin/AdminSidebar';
+import AdminStatCard from '../components/admin/AdminStatCard';
+import AppButton from '../components/ui/AppButton';
+import ConfirmModal from '../components/ui/ConfirmModal';
+import StatusModal from '../components/ui/StatusModal';
 import { API_BASE_URL } from '../config/api';
+import {
+  buildUserRegistrationPayload,
+  isWarehouseAssignmentOptional,
+  requiresVendorAssignment,
+  requiresWarehouseAssignment,
+} from '../utils/userAccess';
 import './AdminDashboard.css';
 
 const defaultSummary = {
@@ -12,33 +26,35 @@ const defaultSummary = {
   discrepancy_by_status: { match: 0, mismatch: 0, missing: 0, over: 0 },
 };
 
-const defaultForm = {
+const defaultUserForm = {
   nama: '',
   email: '',
   role: '',
   ID_vendor: '',
+  ID_gudang: '',
   password: 'Epson@2026!',
+};
+
+const defaultVendorForm = {
+  nama_vendor: '',
+  email_vendor: '',
+  lokasi_vendor: '',
+  kontak: '',
+  aktif: true,
 };
 
 const roleLabels = {
   admin: 'Administrator',
   manager: 'Manager',
   petugas: 'Scan Officer',
-  vendor: 'Vendor',
-};
-
-const roleClassMap = {
-  admin: 'admin',
-  manager: 'manager',
-  petugas: 'scanner',
-  vendor: 'vendor',
+  vendor: 'Vendor User',
 };
 
 const activityBadgeClass = {
-  outbound: 'badge-primary',
-  discrepancy: 'badge-warning',
-  document: 'badge-success',
-  action: 'badge-info',
+  outbound: 'admin-chip admin-chip--blue',
+  discrepancy: 'admin-chip admin-chip--amber',
+  document: 'admin-chip admin-chip--green',
+  action: 'admin-chip admin-chip--slate',
 };
 
 const formatDateTime = (value) => {
@@ -54,19 +70,74 @@ const formatDateTime = (value) => {
   });
 };
 
+const getUserScopeLabel = (user) => {
+  if (user.role === 'vendor') {
+    return user.vendor?.nama_vendor || `Vendor ${user.ID_vendor || '-'}`;
+  }
+
+  return user.warehouse?.nama_gudang || (user.ID_gudang ? `Warehouse ${user.ID_gudang}` : 'Internal');
+};
+
+const buildActivityFeed = (outboundData, discrepancyData, documentData, inboundData) => {
+  const outboundEvents = outboundData.map((item) => ({
+    id: `outbound-${item.ID_outbound}`,
+    time: item.created_at,
+    actor: item.creator?.nama || item.vendor?.nama_vendor || 'System',
+    type: 'Outbound created',
+    typeClass: activityBadgeClass.outbound,
+    detail: `Shipment ${item.no_pengiriman || `SHP-${item.ID_outbound}`} created with status ${item.status || 'draft'}.`,
+    source: 'Outbound',
+  }));
+
+  const discrepancyEvents = discrepancyData.map((item) => ({
+    id: `discrepancy-${item.ID_discrepancy}`,
+    time: item.detected_at || item.created_at,
+    actor: item.outbound_detail?.outbound?.vendor?.nama_vendor || 'System',
+    type: `Discrepancy ${String(item.status || 'unknown').replace(/_/g, ' ')}`,
+    typeClass: activityBadgeClass.discrepancy,
+    detail: `${item.outbound_detail?.barang?.nama_barang || 'Item'} flagged with difference ${item.selisih ?? 0}.`,
+    source: 'Discrepancy',
+  }));
+
+  const documentEvents = documentData.map((item) => ({
+    id: `document-${item.ID_dokumen}`,
+    time: item.dibuat_at,
+    actor: item.pembuat?.nama || 'System',
+    type: `R1 ${String(item.status_dokumen || 'draft').replace(/_/g, ' ')}`,
+    typeClass: activityBadgeClass.document,
+    detail: `Document ${item.no_dokumen_r1 || `R1-${item.ID_dokumen}`} for discrepancy ${item.ID_discrepancy}.`,
+    source: 'R1 document',
+  }));
+
+  const inboundEvents = inboundData.map((item) => ({
+    id: `inbound-${item.ID_inbound}`,
+    time: item.created_at,
+    actor: item.receiver?.nama || 'Scan Officer',
+    type: `Inbound ${String(item.status_scan || 'menunggu').replace(/_/g, ' ')}`,
+    typeClass: activityBadgeClass.action,
+    detail: `Inbound ${item.no_pengiriman || `IN-${item.ID_inbound}`} is ${String(item.status_scan || 'menunggu').replace(/_/g, ' ')}.`,
+    source: 'Inbound',
+  }));
+
+  return [...outboundEvents, ...discrepancyEvents, ...documentEvents, ...inboundEvents]
+    .filter((item) => item.time)
+    .sort((a, b) => new Date(b.time) - new Date(a.time))
+    .slice(0, 24);
+};
+
 const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState('users');
-  const [activeSidebar, setActiveSidebar] = useState('dashboard');
   const [user] = useState(() => {
     const userData = localStorage.getItem('user');
     return userData ? JSON.parse(userData) : null;
   });
   const [loading, setLoading] = useState(false);
   const [savingUser, setSavingUser] = useState(false);
+  const [savingVendor, setSavingVendor] = useState(false);
   const [loadError, setLoadError] = useState('');
-  const [systemLatency, setSystemLatency] = useState(null);
   const [usersList, setUsersList] = useState([]);
   const [vendors, setVendors] = useState([]);
+  const [warehouses, setWarehouses] = useState([]);
   const [summary, setSummary] = useState(defaultSummary);
   const [shipments, setShipments] = useState([]);
   const [inbounds, setInbounds] = useState([]);
@@ -74,55 +145,26 @@ const AdminDashboard = () => {
   const [documents, setDocuments] = useState([]);
   const [activityFeed, setActivityFeed] = useState([]);
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
-  const [newUserForm, setNewUserForm] = useState(defaultForm);
+  const [isAddVendorModalOpen, setIsAddVendorModalOpen] = useState(false);
+  const [newUserForm, setNewUserForm] = useState(defaultUserForm);
+  const [newVendorForm, setNewVendorForm] = useState(defaultVendorForm);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [statusModal, setStatusModal] = useState({
+    open: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
 
   const navigate = useNavigate();
 
-  const buildActivityFeed = (outboundData, discrepancyData, documentData, inboundData) => {
-    const outboundEvents = outboundData.map((item) => ({
-      id: `outbound-${item.ID_outbound}`,
-      time: item.created_at,
-      actor: item.creator?.nama || item.vendor?.nama_vendor || 'System',
-      type: 'OUTBOUND_CREATED',
-      typeClass: activityBadgeClass.outbound,
-      detail: `Shipment ${item.no_pengiriman || `SHP-${item.ID_outbound}`} created with status ${item.status || 'draft'}.`,
-      source: 'Outbound',
-    }));
-
-    const discrepancyEvents = discrepancyData.map((item) => ({
-      id: `discrepancy-${item.ID_discrepancy}`,
-      time: item.detected_at || item.created_at,
-      actor: item.outbound_detail?.outbound?.vendor?.nama_vendor || 'System',
-      type: `DISCREPANCY_${String(item.status || 'unknown').toUpperCase()}`,
-      typeClass: activityBadgeClass.discrepancy,
-      detail: `${item.outbound_detail?.barang?.nama_barang || 'Item'} flagged with difference ${item.selisih ?? 0}.`,
-      source: 'Discrepancy',
-    }));
-
-    const documentEvents = documentData.map((item) => ({
-      id: `document-${item.ID_dokumen}`,
-      time: item.dibuat_at,
-      actor: item.pembuat?.nama || 'System',
-      type: `R1_${String(item.status_dokumen || 'draft').toUpperCase()}`,
-      typeClass: activityBadgeClass.document,
-      detail: `Document ${item.no_dokumen_r1 || `R1-${item.ID_dokumen}`} for discrepancy ${item.ID_discrepancy}.`,
-      source: 'R1 Document',
-    }));
-
-    const inboundEvents = inboundData.map((item) => ({
-      id: `inbound-${item.ID_inbound}`,
-      time: item.created_at,
-      actor: item.receiver?.nama || 'Scan Officer',
-      type: `INBOUND_${String(item.status_scan || 'menunggu').toUpperCase()}`,
-      typeClass: activityBadgeClass.action,
-      detail: `Inbound ${item.no_pengiriman || `IN-${item.ID_inbound}`} is ${String(item.status_scan || 'menunggu').replace(/_/g, ' ')}.`,
-      source: 'Inbound',
-    }));
-
-    return [...outboundEvents, ...discrepancyEvents, ...documentEvents, ...inboundEvents]
-      .filter((item) => item.time)
-      .sort((a, b) => new Date(b.time) - new Date(a.time))
-      .slice(0, 25);
+  const openStatusModal = (type, title, message) => {
+    setStatusModal({
+      open: true,
+      type,
+      title,
+      message,
+    });
   };
 
   const fetchData = async () => {
@@ -132,12 +174,12 @@ const AdminDashboard = () => {
     try {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
-      const startTime = performance.now();
 
       const [
         summaryRes,
         usersRes,
         vendorRes,
+        gudangRes,
         outboundRes,
         inboundRes,
         discrepancyRes,
@@ -146,6 +188,7 @@ const AdminDashboard = () => {
         axios.get(`${API_BASE_URL}/api/dashboard/summary`, { headers }),
         axios.get(`${API_BASE_URL}/api/master/user`, { headers }),
         axios.get(`${API_BASE_URL}/api/master/vendor`, { headers }),
+        axios.get(`${API_BASE_URL}/api/master/gudang`, { headers }),
         axios.get(`${API_BASE_URL}/api/outbound`, { headers }),
         axios.get(`${API_BASE_URL}/api/inbound`, { headers }),
         axios.get(`${API_BASE_URL}/api/discrepancy`, { headers }),
@@ -155,6 +198,7 @@ const AdminDashboard = () => {
       const summaryData = summaryRes.data?.data || defaultSummary;
       const userData = usersRes.data?.data?.data || usersRes.data?.data || [];
       const vendorData = vendorRes.data?.data?.data || vendorRes.data?.data || [];
+      const warehouseData = gudangRes.data?.data?.data || gudangRes.data?.data || [];
       const outboundData = outboundRes.data?.data?.data || outboundRes.data?.data || [];
       const inboundData = inboundRes.data?.data?.data || inboundRes.data?.data || [];
       const discrepancyData = discrepancyRes.data?.data?.data || discrepancyRes.data?.data || [];
@@ -163,12 +207,12 @@ const AdminDashboard = () => {
       setSummary({ ...defaultSummary, ...summaryData });
       setUsersList(Array.isArray(userData) ? userData : []);
       setVendors(Array.isArray(vendorData) ? vendorData : []);
+      setWarehouses(Array.isArray(warehouseData) ? warehouseData : []);
       setShipments(Array.isArray(outboundData) ? outboundData : []);
       setInbounds(Array.isArray(inboundData) ? inboundData : []);
       setDiscrepancies(Array.isArray(discrepancyData) ? discrepancyData : []);
       setDocuments(Array.isArray(documentData) ? documentData : []);
       setActivityFeed(buildActivityFeed(outboundData, discrepancyData, documentData, inboundData));
-      setSystemLatency(Math.round(performance.now() - startTime));
     } catch (error) {
       console.error('Error fetching admin dashboard data:', error);
       setLoadError(error.response?.data?.message || 'Failed to load admin dashboard data.');
@@ -178,7 +222,7 @@ const AdminDashboard = () => {
   };
 
   useEffect(() => {
-    fetchData();
+    void fetchData();
   }, []);
 
   const handleLogout = async () => {
@@ -189,10 +233,29 @@ const AdminDashboard = () => {
           headers: { Authorization: `Bearer ${token}` },
         });
       }
-    } catch (e) {}
+    } catch {
+      // Keep logout resilient
+    }
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     navigate('/login');
+  };
+
+  const resetNewUserForm = () => {
+    setNewUserForm(defaultUserForm);
+  };
+
+  const resetNewVendorForm = () => {
+    setNewVendorForm(defaultVendorForm);
+  };
+
+  const openUserModal = (role = '') => {
+    resetNewUserForm();
+    setNewUserForm((prev) => ({
+      ...prev,
+      role,
+    }));
+    setIsAddUserModalOpen(true);
   };
 
   const handleNewUserFieldChange = (field, value) => {
@@ -200,288 +263,266 @@ const AdminDashboard = () => {
       ...prev,
       [field]: value,
       ...(field === 'role' && value !== 'vendor' ? { ID_vendor: '' } : {}),
+      ...(field === 'role' && !['petugas', 'manager'].includes(value) ? { ID_gudang: '' } : {}),
     }));
   };
 
-  const resetNewUserForm = () => {
-    setNewUserForm(defaultForm);
+  const handleNewVendorFieldChange = (field, value) => {
+    setNewVendorForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
   };
 
   const handleCreateUser = async () => {
     if (!newUserForm.nama || !newUserForm.email || !newUserForm.role) {
-      alert('Please complete name, email, and role first.');
+      openStatusModal('warning', 'Incomplete form', 'Please complete name, email, and role first.');
       return;
     }
 
-    if (newUserForm.role === 'vendor' && !newUserForm.ID_vendor) {
-      alert('Please select a vendor for vendor-role users.');
+    if (requiresVendorAssignment(newUserForm.role) && !newUserForm.ID_vendor) {
+      openStatusModal('warning', 'Vendor required', 'Please select a linked vendor.');
+      return;
+    }
+
+    if (requiresWarehouseAssignment(newUserForm.role) && !newUserForm.ID_gudang) {
+      openStatusModal('warning', 'Warehouse required', 'Please select an assigned warehouse for scan officer users.');
       return;
     }
 
     setSavingUser(true);
     try {
-      await axios.post(`${API_BASE_URL}/api/auth/register`, {
-        nama: newUserForm.nama,
-        email: newUserForm.email,
-        password: newUserForm.password,
-        password_confirmation: newUserForm.password,
-        role: newUserForm.role,
-        ID_vendor: newUserForm.role === 'vendor' ? Number(newUserForm.ID_vendor) : null,
-      });
-
+      await axios.post(`${API_BASE_URL}/api/auth/register`, buildUserRegistrationPayload(newUserForm));
       setIsAddUserModalOpen(false);
       resetNewUserForm();
       await fetchData();
+      openStatusModal('success', 'User created', 'The new user account has been created successfully.');
     } catch (error) {
       console.error('Error creating user:', error);
       const message = error.response?.data?.message || 'Failed to create user.';
       const validationErrors = error.response?.data?.errors;
-
-      if (validationErrors) {
-        const firstError = Object.values(validationErrors).flat()[0];
-        alert(firstError || message);
-      } else {
-        alert(message);
-      }
+      const firstError = validationErrors ? Object.values(validationErrors).flat()[0] : null;
+      openStatusModal('error', 'Unable to create user', firstError || message);
     } finally {
       setSavingUser(false);
     }
   };
 
-  const totalShipments = shipments.length;
-  const discrepancyCount = discrepancies.length;
-  const discrepancyRate = totalShipments > 0 ? ((discrepancyCount / totalShipments) * 100).toFixed(1) : '0.0';
-  const roleCount = new Set(usersList.map((item) => item.role)).size;
-  const activeVendorCount = usersList.filter((item) => item.role === 'vendor' && item.vendor?.aktif !== false).length;
-  const recentActivityCount = activityFeed.length;
+  const handleCreateVendor = async () => {
+    if (!newVendorForm.nama_vendor || !newVendorForm.email_vendor) {
+      openStatusModal('warning', 'Incomplete form', 'Please complete vendor name and vendor email first.');
+      return;
+    }
 
-  const apiHealthUp = !loadError;
-  const databaseHealthUp = apiHealthUp && (
-    usersList.length > 0 ||
-    vendors.length > 0 ||
-    shipments.length > 0 ||
-    inbounds.length > 0 ||
-    discrepancies.length > 0 ||
-    documents.length > 0
+    setSavingVendor(true);
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(`${API_BASE_URL}/api/master/vendor`, newVendorForm, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setIsAddVendorModalOpen(false);
+      resetNewVendorForm();
+      await fetchData();
+      openStatusModal('success', 'Vendor created', 'The vendor master record has been created successfully.');
+    } catch (error) {
+      console.error('Error creating vendor:', error);
+      const message = error.response?.data?.message || 'Failed to create vendor.';
+      const validationErrors = error.response?.data?.errors;
+      const firstError = validationErrors ? Object.values(validationErrors).flat()[0] : null;
+      openStatusModal('error', 'Unable to create vendor', firstError || message);
+    } finally {
+      setSavingVendor(false);
+    }
+  };
+
+  const stats = useMemo(() => {
+    const activeVendorCount = vendors.filter((vendor) => vendor.aktif !== false).length;
+    const scannerCount = usersList.filter((item) => item.role === 'petugas').length;
+    const managerCount = usersList.filter((item) => item.role === 'manager').length;
+    const vendorUserCount = usersList.filter((item) => item.role === 'vendor').length;
+
+    return {
+      activeVendorCount,
+      managerCount,
+      scannerCount,
+      totalUsers: usersList.length,
+      vendorUserCount,
+    };
+  }, [usersList, vendors]);
+
+  const pageCopy = {
+    activity: {
+      description: 'Live events from outbound, inbound, discrepancy, and R1 records.',
+      title: 'Recent activity',
+    },
+    users: {
+      description: 'Create scanner, manager, admin, and vendor-linked user accounts from one place.',
+      title: 'User management',
+    },
+    vendors: {
+      description: 'Maintain vendor master data before linking users or shipments.',
+      title: 'Vendor management',
+    },
+  }[activeTab];
+
+  const headerActions = (
+    <>
+      {activeTab === 'users' ? (
+        <>
+          <AppButton type="button" onClick={() => openUserModal('manager')}>
+            Add user
+          </AppButton>
+        </>
+      ) : null}
+
+      {activeTab === 'vendors' ? (
+        <>
+          <AppButton type="button" variant="secondary" onClick={() => openUserModal('vendor')}>
+            Add vendor user
+          </AppButton>
+          <AppButton type="button" onClick={() => setIsAddVendorModalOpen(true)}>
+            Add vendor
+          </AppButton>
+        </>
+      ) : null}
+
+      {activeTab === 'activity' ? (
+        <AppButton type="button" variant="secondary" onClick={fetchData}>
+          Refresh
+        </AppButton>
+      ) : null}
+    </>
   );
 
   return (
-    <div className="app-container admin-dashboard">
-      <aside className="sidebar admin-sidebar">
-        <div className="sidebar-header">
-          <div className="logo">
-            <i className="fa-solid fa-shield-halved"></i>
-            <span>EpsonAdmin</span>
-          </div>
-        </div>
-        <nav className="sidebar-nav">
-          <div className="nav-section">ADMINISTRATION</div>
-          <a href="#" className={`nav-item ${activeSidebar === 'dashboard' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setActiveSidebar('dashboard'); }}>
-            <i className="fa-solid fa-server"></i>
-            <span>System Dashboard</span>
-          </a>
-          <a href="#" className={`nav-item ${activeTab === 'users' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setActiveSidebar('dashboard'); setActiveTab('users'); }}>
-            <i className="fa-solid fa-users-gear"></i>
-            <span>User Management</span>
-          </a>
-          <a href="#" className={`nav-item ${activeTab === 'vendors' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setActiveSidebar('dashboard'); setActiveTab('vendors'); }}>
-            <i className="fa-solid fa-building"></i>
-            <span>Vendors</span>
-          </a>
+    <div className="admin-workspace">
+      <AdminSidebar activeTab={activeTab} onChangeTab={setActiveTab} onLogout={() => setLogoutConfirmOpen(true)} />
 
-          <div className="nav-section">SECURITY & LOGS</div>
-          <a href="#" className={`nav-item ${activeTab === 'activity' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setActiveSidebar('dashboard'); setActiveTab('activity'); }}>
-            <i className="fa-solid fa-list-check"></i>
-            <span>Recent Activity</span>
-          </a>
-          <a href="#" className={`nav-item ${activeTab === 'health' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setActiveSidebar('dashboard'); setActiveTab('health'); }}>
-            <i className="fa-solid fa-triangle-exclamation"></i>
-            <span>System Health</span>
-          </a>
-        </nav>
-        <div className="sidebar-footer">
-          <a href="#" className="nav-item text-danger" onClick={(e) => { e.preventDefault(); handleLogout(); }}>
-            <i className="fa-solid fa-right-from-bracket"></i>
-            <span>Logout</span>
-          </a>
-        </div>
-      </aside>
+      <main className="admin-workspace__main">
+        <div className="admin-workspace__inner">
+          <AdminPageHeader title={pageCopy.title} description={pageCopy.description} actions={headerActions} />
 
-      <main className="main-content">
-        <header className="topbar">
-          <div className="search-bar">
-            <i className="fa-solid fa-database"></i>
-            <input type="text" value="Live backend-connected admin dashboard" readOnly />
-          </div>
-          <div className="topbar-actions">
-            <div className="date-badge">
-              <i className="fa-regular fa-clock"></i>
-              <span>{new Date().toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-            </div>
-            <button className="icon-btn" onClick={fetchData} disabled={loading} title="Refresh dashboard">
-              <i className={`fa-solid ${loading ? 'fa-spinner fa-spin' : 'fa-rotate-right'}`}></i>
-            </button>
-            <div className="user-profile">
-              <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: '#0f172a', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
-                {user ? user.nama?.charAt(0).toUpperCase() : 'A'}
-              </div>
-              <div className="user-info">
-                <span className="user-name">{user ? user.nama : 'Admin'}</span>
-                <span className="user-role">System Administrator</span>
-              </div>
-            </div>
-          </div>
-        </header>
-
-        <div className="content-wrapper">
-          <div className="page-header">
-            <div>
-              <h1>Admin & Audit Portal</h1>
-              <p className="subtitle">Live system data from backend APIs. Logged in as: <strong>{user ? user.email : 'admin@epson.com'}</strong></p>
-            </div>
-            <div className="header-actions">
-              <button className="btn btn-outline" onClick={fetchData} disabled={loading}>
-                <i className="fa-solid fa-arrows-rotate"></i> Refresh
-              </button>
-              <button className="btn btn-primary" onClick={() => setIsAddUserModalOpen(true)}>
-                <i className="fa-solid fa-user-plus"></i> Add New User
-              </button>
-            </div>
-          </div>
-
-          {loadError && (
-            <div className="alert-banner error">
+          {loadError ? (
+            <div className="admin-inline-alert">
               <i className="fa-solid fa-circle-exclamation"></i>
               <span>{loadError}</span>
             </div>
-          )}
+          ) : null}
 
-          <div className="stats-kpi-container">
-            <div className="kpi-card border-blue">
-              <div className="kpi-header">
-                <span className="kpi-title">Registered Users</span>
-                <i className="fa-solid fa-users text-muted"></i>
-              </div>
-              <div className="kpi-value">{usersList.length}</div>
-              <div className="kpi-trend text-muted">Across {roleCount || 0} active roles</div>
-            </div>
-
-            <div className="kpi-card border-info">
-              <div className="kpi-header">
-                <span className="kpi-title">Total Shipments</span>
-                <i className="fa-solid fa-box text-muted"></i>
-              </div>
-              <div className="kpi-value">{totalShipments}</div>
-              <div className="kpi-trend text-success">Outbound records from database</div>
-            </div>
-
-            <div className="kpi-card border-warning">
-              <div className="kpi-header">
-                <span className="kpi-title">Discrepancy Rate</span>
-                <i className="fa-solid fa-triangle-exclamation text-muted"></i>
-              </div>
-              <div className="kpi-value">{discrepancyRate}<span className="kpi-unit">%</span></div>
-              <div className="kpi-trend text-warning">{discrepancyCount} discrepancy records detected</div>
-            </div>
-
-            <div className="kpi-card border-purple">
-              <div className="kpi-header">
-                <span className="kpi-title">Recent Activities</span>
-                <i className="fa-solid fa-file-waveform text-muted"></i>
-              </div>
-              <div className="kpi-value">{recentActivityCount}</div>
-              <div className="kpi-trend text-muted">Combined live system events</div>
-            </div>
-          </div>
-
-          <div className="card data-card mt-4">
-            <div className="card-tabs">
-              <button className={`tab-btn ${activeTab === 'users' ? 'active' : ''}`} onClick={() => setActiveTab('users')}>
-                System Users <span className="tab-badge blue">{usersList.length}</span>
-              </button>
-              <button className={`tab-btn ${activeTab === 'vendors' ? 'active' : ''}`} onClick={() => setActiveTab('vendors')}>
-                Vendors <span className="tab-badge">{vendors.length}</span>
-              </button>
-              <button className={`tab-btn ${activeTab === 'activity' ? 'active' : ''}`} onClick={() => setActiveTab('activity')}>
-                Recent Activity <span className="tab-badge">{recentActivityCount}</span>
-              </button>
-              <button className={`tab-btn ${activeTab === 'health' ? 'active' : ''}`} onClick={() => setActiveTab('health')}>
-                System Health
-              </button>
-            </div>
-
-            {activeTab === 'users' && (
-              <div className="tab-content active" id="tab-users">
-                <div className="table-toolbar">
-                  <div className="table-summary-text">
-                    Pulled from <code>/api/master/user</code> with vendor relation data.
-                  </div>
+          {activeTab === 'users' ? (
+            <>
+              <div className="admin-users-top-row">
+                <div className="admin-stats-grid admin-stats-grid--compact">
+                  <AdminStatCard compact icon="fa-solid fa-users" label="Total users" value={stats.totalUsers} />
+                  <AdminStatCard compact icon="fa-solid fa-qrcode" label="Scan officers" value={stats.scannerCount} />
+                  <AdminStatCard compact icon="fa-solid fa-user-tie" label="Managers" value={stats.managerCount} />
+                  <AdminStatCard compact icon="fa-solid fa-truck" label="Vendor users" value={stats.vendorUserCount} />
                 </div>
 
-                <div className="table-responsive">
-                  <table className="data-table">
+                <AdminPanel
+                  className="admin-panel--quick-actions"
+                  title="Quick actions"
+                  description="Create common account types faster."
+                >
+                  <div className="admin-quick-actions admin-quick-actions--compact">
+                    <button type="button" className="admin-quick-action admin-quick-action--compact" onClick={() => openUserModal('petugas')}>
+                      <i className="fa-solid fa-qrcode"></i>
+                      <div>
+                        <strong>Add scanner</strong>
+                        <span>Fixed warehouse scope.</span>
+                      </div>
+                    </button>
+                    <button type="button" className="admin-quick-action admin-quick-action--compact" onClick={() => openUserModal('manager')}>
+                      <i className="fa-solid fa-chart-column"></i>
+                      <div>
+                        <strong>Add manager</strong>
+                        <span>Optional default warehouse.</span>
+                      </div>
+                    </button>
+                    <button type="button" className="admin-quick-action admin-quick-action--compact" onClick={() => openUserModal('vendor')}>
+                      <i className="fa-solid fa-building"></i>
+                      <div>
+                        <strong>Add vendor user</strong>
+                        <span>Link to one vendor master.</span>
+                      </div>
+                    </button>
+                  </div>
+                </AdminPanel>
+              </div>
+
+              <AdminPanel
+                title="System users"
+                description="Users returned from /api/master/user, including warehouse and vendor scopes."
+                action={<button type="button" className="admin-link-action" onClick={fetchData}>{loading ? 'Refreshing...' : 'Refresh'}</button>}
+              >
+                <div className="admin-table-wrap">
+                  <table className="admin-table">
                     <thead>
                       <tr>
-                        <th>User ID</th>
-                        <th>Full Name</th>
+                        <th>Name</th>
                         <th>Email</th>
                         <th>Role</th>
-                        <th>Status</th>
-                        <th>Created At</th>
                         <th>Scope</th>
+                        <th>Status</th>
+                        <th>Created</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {usersList.map((u) => {
-                        const isVendor = u.role === 'vendor';
-                        const derivedStatus = isVendor ? (u.vendor?.aktif === false ? 'inactive' : 'active') : 'active';
+                      {usersList.map((item) => {
+                        const isVendor = item.role === 'vendor';
+                        const statusLabel = isVendor && item.vendor?.aktif === false ? 'Inactive' : 'Active';
 
                         return (
-                          <tr key={u.ID_user} className={derivedStatus === 'inactive' ? 'inactive-row' : ''}>
-                            <td className="font-medium text-muted">{u.ID_user}</td>
+                          <tr key={item.ID_user}>
                             <td>
-                              <div className="user-cell">
-                                <div className={`avatar-sm bg-${roleClassMap[u.role] || 'muted'}`}>{u.nama?.charAt(0).toUpperCase()}</div>
-                                <span className="font-medium">{u.nama}</span>
+                              <div className="admin-person">
+                                <div className="admin-person__avatar">{item.nama?.charAt(0).toUpperCase()}</div>
+                                <div>
+                                  <strong>{item.nama}</strong>
+                                  <span>ID {item.ID_user}</span>
+                                </div>
                               </div>
                             </td>
-                            <td>{u.email}</td>
-                            <td><span className={`role-badge role-${roleClassMap[u.role] || 'vendor'}`}>{roleLabels[u.role] || u.role}</span></td>
-                            <td>
-                              <span className="status-indicator">
-                                <span className={`dot ${derivedStatus}`}></span>
-                                {derivedStatus === 'active' ? 'Active' : 'Inactive'}
-                              </span>
-                            </td>
-                            <td className="text-muted">{formatDateTime(u.created_at)}</td>
-                            <td>{isVendor ? (u.vendor?.nama_vendor || `Vendor ${u.ID_vendor || '-'}`) : 'Internal User'}</td>
+                            <td>{item.email}</td>
+                            <td><span className={`admin-role admin-role--${item.role || 'vendor'}`}>{roleLabels[item.role] || item.role}</span></td>
+                            <td>{getUserScopeLabel(item)}</td>
+                            <td><span className={`admin-status ${statusLabel === 'Active' ? 'is-active' : 'is-inactive'}`}>{statusLabel}</span></td>
+                            <td>{formatDateTime(item.created_at)}</td>
                           </tr>
                         );
                       })}
-                      {usersList.length === 0 && (
+
+                      {usersList.length === 0 ? (
                         <tr>
-                          <td colSpan="7" className="text-center" style={{ padding: '24px' }}>No users returned by backend.</td>
+                          <td colSpan="6" className="admin-table__empty">No users returned by backend.</td>
                         </tr>
-                      )}
+                      ) : null}
                     </tbody>
                   </table>
                 </div>
-              </div>
-            )}
+              </AdminPanel>
+            </>
+          ) : null}
 
-            {activeTab === 'vendors' && (
-              <div className="tab-content active" id="tab-vendors">
-                <div className="table-toolbar">
-                  <div className="table-summary-text">
-                    Active vendor-linked users: <strong>{activeVendorCount}</strong>
-                  </div>
-                </div>
-                <div className="table-responsive">
-                  <table className="data-table">
+          {activeTab === 'vendors' ? (
+            <>
+              <div className="admin-stats-grid">
+                <AdminStatCard icon="fa-solid fa-building" label="Vendor master" meta="Total vendors available in master data" value={vendors.length} />
+                <AdminStatCard icon="fa-solid fa-circle-check" label="Active vendors" meta="Partners currently marked active" value={stats.activeVendorCount} />
+                <AdminStatCard icon="fa-solid fa-user-group" label="Vendor users" meta="Linked external accounts" value={stats.vendorUserCount} />
+                <AdminStatCard icon="fa-solid fa-warehouse" label="Warehouses" meta="Available warehouse references" value={warehouses.length} />
+              </div>
+
+              <AdminPanel
+                title="Vendor master data"
+                description="Vendor records are used for shipment ownership and vendor-linked user accounts."
+                action={<button type="button" className="admin-link-action" onClick={() => setIsAddVendorModalOpen(true)}>Add vendor</button>}
+              >
+                <div className="admin-table-wrap">
+                  <table className="admin-table">
                     <thead>
                       <tr>
-                        <th>Vendor ID</th>
-                        <th>Vendor Name</th>
+                        <th>Vendor</th>
                         <th>Email</th>
                         <th>Location</th>
                         <th>Contact</th>
@@ -491,164 +532,189 @@ const AdminDashboard = () => {
                     <tbody>
                       {vendors.map((vendor) => (
                         <tr key={vendor.ID_vendor}>
-                          <td className="font-medium text-muted">{vendor.ID_vendor}</td>
-                          <td>{vendor.nama_vendor}</td>
-                          <td>{vendor.email_vendor}</td>
-                          <td>{vendor.lokasi_vendor}</td>
-                          <td>{vendor.kontak}</td>
                           <td>
-                            <span className="status-indicator">
-                              <span className={`dot ${vendor.aktif ? 'active' : 'inactive'}`}></span>
-                              {vendor.aktif ? 'Active' : 'Inactive'}
-                            </span>
+                            <div className="admin-person">
+                              <div className="admin-person__avatar admin-person__avatar--vendor">
+                                {vendor.nama_vendor?.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <strong>{vendor.nama_vendor}</strong>
+                                <span>ID {vendor.ID_vendor}</span>
+                              </div>
+                            </div>
                           </td>
+                          <td>{vendor.email_vendor || '-'}</td>
+                          <td>{vendor.lokasi_vendor || '-'}</td>
+                          <td>{vendor.kontak || '-'}</td>
+                          <td><span className={`admin-status ${vendor.aktif ? 'is-active' : 'is-inactive'}`}>{vendor.aktif ? 'Active' : 'Inactive'}</span></td>
                         </tr>
                       ))}
-                      {vendors.length === 0 && (
+
+                      {vendors.length === 0 ? (
                         <tr>
-                          <td colSpan="6" className="text-center" style={{ padding: '24px' }}>No vendors returned by backend.</td>
+                          <td colSpan="5" className="admin-table__empty">No vendors returned by backend.</td>
                         </tr>
-                      )}
+                      ) : null}
                     </tbody>
                   </table>
                 </div>
-              </div>
-            )}
+              </AdminPanel>
+            </>
+          ) : null}
 
-            {activeTab === 'activity' && (
-              <div className="tab-content active" id="tab-activity">
-                <div className="table-toolbar">
-                  <div className="table-summary-text">
-                    This feed is generated from live outbound, inbound, discrepancy, and R1 document records.
-                  </div>
-                </div>
-                <div className="table-responsive">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Timestamp</th>
-                        <th>Actor</th>
-                        <th>Action Type</th>
-                        <th>Resource / Details</th>
-                        <th>Source</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {activityFeed.map((log) => (
-                        <tr key={log.id}>
-                          <td className="text-muted">{formatDateTime(log.time)}</td>
-                          <td><strong>{log.actor}</strong></td>
-                          <td><span className={`badge ${log.typeClass}`}>{log.type}</span></td>
-                          <td>{log.detail}</td>
-                          <td className="text-muted">{log.source}</td>
-                        </tr>
-                      ))}
-                      {activityFeed.length === 0 && (
-                        <tr>
-                          <td colSpan="5" className="text-center" style={{ padding: '24px' }}>No recent activity returned by backend data.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+          {activeTab === 'activity' ? (
+            <AdminPanel
+              title="Recent activity"
+              description="A combined feed from outbound, inbound, discrepancy, and R1 records."
+              action={<button type="button" className="admin-link-action" onClick={fetchData}>{loading ? 'Refreshing...' : 'Refresh'}</button>}
+            >
+              <div className="admin-activity-list">
+                {activityFeed.map((item) => (
+                  <article key={item.id} className="admin-activity-item">
+                    <div className="admin-activity-item__top">
+                      <div>
+                        <strong>{item.actor}</strong>
+                        <span>{formatDateTime(item.time)}</span>
+                      </div>
+                      <span className={item.typeClass}>{item.type}</span>
+                    </div>
+                    <p>{item.detail}</p>
+                    <small>{item.source}</small>
+                  </article>
+                ))}
 
-            {activeTab === 'health' && (
-              <div className="tab-content active" id="tab-health">
-                <div className="health-grid">
-                  <div className="health-card">
-                    <h3>API Server Status</h3>
-                    <div className={`health-status ${apiHealthUp ? 'up' : 'down'}`}>
-                      <i className={`fa-solid ${apiHealthUp ? 'fa-check-circle' : 'fa-circle-xmark'}`}></i>
-                      {apiHealthUp ? 'Operational' : 'Unavailable'}
-                    </div>
-                    <p className="text-muted mt-2">Latest refresh latency: {systemLatency !== null ? `${systemLatency}ms` : '-'}</p>
-                  </div>
-                  <div className="health-card">
-                    <h3>Database Connectivity</h3>
-                    <div className={`health-status ${databaseHealthUp ? 'up' : 'down'}`}>
-                      <i className={`fa-solid ${databaseHealthUp ? 'fa-check-circle' : 'fa-circle-xmark'}`}></i>
-                      {databaseHealthUp ? 'Operational' : 'No data returned'}
-                    </div>
-                    <p className="text-muted mt-2">Users: {usersList.length}, Vendors: {vendors.length}, Documents: {documents.length}</p>
-                  </div>
-                  <div className="health-card">
-                    <h3>Live Processing Queue</h3>
-                    <div className="health-status up">
-                      <i className="fa-solid fa-check-circle"></i>
-                      Monitoring
-                    </div>
-                    <p className="text-muted mt-2">Inbound today: {summary.total_inbound_today}, Pending actions: {summary.pending_actions}</p>
-                  </div>
-                </div>
+                {activityFeed.length === 0 ? (
+                  <div className="admin-empty-block">No recent activity returned by backend.</div>
+                ) : null}
               </div>
-            )}
-          </div>
+            </AdminPanel>
+          ) : null}
         </div>
       </main>
 
-      {isAddUserModalOpen && (
-        <div className="modal-overlay" style={{ display: 'flex' }}>
-          <div className="modal">
-            <div className="modal-header">
-              <h2>Create New System User</h2>
-              <button className="close-btn" onClick={() => { setIsAddUserModalOpen(false); resetNewUserForm(); }}>
-                <i className="fa-solid fa-xmark"></i>
-              </button>
+      {isAddUserModalOpen ? (
+        <AdminModal title="Create user" onClose={() => { setIsAddUserModalOpen(false); resetNewUserForm(); }}>
+          <div className="admin-form-grid">
+            <div className="admin-form-field">
+              <label htmlFor="admin-user-name">Full name</label>
+              <input id="admin-user-name" className="admin-input" type="text" placeholder="John Doe" value={newUserForm.nama} onChange={(event) => handleNewUserFieldChange('nama', event.target.value)} />
             </div>
-            <div className="modal-body">
-              <div className="form-grid">
-                <div className="form-group">
-                  <label>Full Name</label>
-                  <input type="text" className="form-control" placeholder="e.g. John Doe" value={newUserForm.nama} onChange={(e) => handleNewUserFieldChange('nama', e.target.value)} />
-                </div>
-                <div className="form-group">
-                  <label>Email Address</label>
-                  <input type="email" className="form-control" placeholder="e.g. john@epson.com" value={newUserForm.email} onChange={(e) => handleNewUserFieldChange('email', e.target.value)} />
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label>System Role</label>
-                <select className="form-control" value={newUserForm.role} onChange={(e) => handleNewUserFieldChange('role', e.target.value)}>
-                  <option value="">Select a role...</option>
-                  <option value="vendor">Vendor (External)</option>
-                  <option value="petugas">Scan Officer (Internal)</option>
-                  <option value="manager">Manager (Internal)</option>
-                  <option value="admin">Administrator (Super User)</option>
-                </select>
-              </div>
-
-              {newUserForm.role === 'vendor' && (
-                <div className="form-group">
-                  <label>Linked Vendor</label>
-                  <select className="form-control" value={newUserForm.ID_vendor} onChange={(e) => handleNewUserFieldChange('ID_vendor', e.target.value)}>
-                    <option value="">Select a vendor...</option>
-                    {vendors.map((vendor) => (
-                      <option key={vendor.ID_vendor} value={vendor.ID_vendor}>
-                        {vendor.nama_vendor}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div className="form-group">
-                <label>Initial Password</label>
-                <input type="password" className="form-control" value={newUserForm.password} onChange={(e) => handleNewUserFieldChange('password', e.target.value)} />
-                <small className="text-muted d-block mt-2">This form is now connected to the backend registration endpoint.</small>
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-outline" onClick={() => { setIsAddUserModalOpen(false); resetNewUserForm(); }}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleCreateUser} disabled={savingUser}>
-                {savingUser ? 'Creating...' : 'Create User'}
-              </button>
+            <div className="admin-form-field">
+              <label htmlFor="admin-user-email">Email</label>
+              <input id="admin-user-email" className="admin-input" type="email" placeholder="john@epson.com" value={newUserForm.email} onChange={(event) => handleNewUserFieldChange('email', event.target.value)} />
             </div>
           </div>
-        </div>
-      )}
+
+          <div className="admin-form-field">
+            <label htmlFor="admin-user-role">Role</label>
+            <select id="admin-user-role" className="admin-input" value={newUserForm.role} onChange={(event) => handleNewUserFieldChange('role', event.target.value)}>
+              <option value="">Select role</option>
+              <option value="vendor">Vendor user</option>
+              <option value="petugas">Scan officer</option>
+              <option value="manager">Manager</option>
+              <option value="admin">Administrator</option>
+            </select>
+          </div>
+
+          {requiresVendorAssignment(newUserForm.role) ? (
+            <div className="admin-form-field">
+              <label htmlFor="admin-user-vendor">Linked vendor</label>
+              <select id="admin-user-vendor" className="admin-input" value={newUserForm.ID_vendor} onChange={(event) => handleNewUserFieldChange('ID_vendor', event.target.value)}>
+                <option value="">Select vendor</option>
+                {vendors.map((vendor) => (
+                  <option key={vendor.ID_vendor} value={vendor.ID_vendor}>{vendor.nama_vendor}</option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+
+          {requiresWarehouseAssignment(newUserForm.role) || isWarehouseAssignmentOptional(newUserForm.role) ? (
+            <div className="admin-form-field">
+              <label htmlFor="admin-user-warehouse">
+                {requiresWarehouseAssignment(newUserForm.role) ? 'Assigned warehouse' : 'Default warehouse'}
+              </label>
+              <select id="admin-user-warehouse" className="admin-input" value={newUserForm.ID_gudang} onChange={(event) => handleNewUserFieldChange('ID_gudang', event.target.value)}>
+                <option value="">{requiresWarehouseAssignment(newUserForm.role) ? 'Select warehouse' : 'No default warehouse'}</option>
+                {warehouses.map((warehouse) => (
+                  <option key={warehouse.ID_gudang} value={warehouse.ID_gudang}>{warehouse.nama_gudang}</option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+
+          <div className="admin-form-field">
+            <label htmlFor="admin-user-password">Initial password</label>
+            <input id="admin-user-password" className="admin-input" type="password" value={newUserForm.password} onChange={(event) => handleNewUserFieldChange('password', event.target.value)} />
+          </div>
+
+          <div className="admin-modal__actions">
+            <AppButton type="button" variant="secondary" onClick={() => { setIsAddUserModalOpen(false); resetNewUserForm(); }}>
+              Cancel
+            </AppButton>
+            <AppButton type="button" onClick={handleCreateUser} disabled={savingUser}>
+              {savingUser ? 'Creating...' : 'Create user'}
+            </AppButton>
+          </div>
+        </AdminModal>
+      ) : null}
+
+      {isAddVendorModalOpen ? (
+        <AdminModal title="Create vendor" onClose={() => { setIsAddVendorModalOpen(false); resetNewVendorForm(); }}>
+          <div className="admin-form-grid">
+            <div className="admin-form-field">
+              <label htmlFor="vendor-name">Vendor name</label>
+              <input id="vendor-name" className="admin-input" type="text" placeholder="PT Vendor Makmur" value={newVendorForm.nama_vendor} onChange={(event) => handleNewVendorFieldChange('nama_vendor', event.target.value)} />
+            </div>
+            <div className="admin-form-field">
+              <label htmlFor="vendor-email">Vendor email</label>
+              <input id="vendor-email" className="admin-input" type="email" placeholder="vendor@example.com" value={newVendorForm.email_vendor} onChange={(event) => handleNewVendorFieldChange('email_vendor', event.target.value)} />
+            </div>
+          </div>
+
+          <div className="admin-form-grid">
+            <div className="admin-form-field">
+              <label htmlFor="vendor-location">Location</label>
+              <input id="vendor-location" className="admin-input" type="text" placeholder="Bekasi" value={newVendorForm.lokasi_vendor} onChange={(event) => handleNewVendorFieldChange('lokasi_vendor', event.target.value)} />
+            </div>
+            <div className="admin-form-field">
+              <label htmlFor="vendor-contact">Contact</label>
+              <input id="vendor-contact" className="admin-input" type="text" placeholder="0812xxxxxxx" value={newVendorForm.kontak} onChange={(event) => handleNewVendorFieldChange('kontak', event.target.value)} />
+            </div>
+          </div>
+
+          <label className="admin-checkbox">
+            <input type="checkbox" checked={newVendorForm.aktif} onChange={(event) => handleNewVendorFieldChange('aktif', event.target.checked)} />
+            <span>Vendor is active</span>
+          </label>
+
+          <div className="admin-modal__actions">
+            <AppButton type="button" variant="secondary" onClick={() => { setIsAddVendorModalOpen(false); resetNewVendorForm(); }}>
+              Cancel
+            </AppButton>
+            <AppButton type="button" onClick={handleCreateVendor} disabled={savingVendor}>
+              {savingVendor ? 'Creating...' : 'Create vendor'}
+            </AppButton>
+          </div>
+        </AdminModal>
+      ) : null}
+
+      <ConfirmModal
+        open={logoutConfirmOpen}
+        title="Sign out?"
+        message="You will need to sign in again to continue using the admin workspace."
+        cancelLabel="Stay here"
+        confirmLabel="Sign out"
+        onCancel={() => setLogoutConfirmOpen(false)}
+        onConfirm={handleLogout}
+      />
+
+      <StatusModal
+        open={statusModal.open}
+        type={statusModal.type}
+        title={statusModal.title}
+        message={statusModal.message}
+        onClose={() => setStatusModal((prev) => ({ ...prev, open: false }))}
+      />
     </div>
   );
 };

@@ -310,6 +310,19 @@ body {
     overflow: hidden;
 }
 
+.kpi-card-action {
+    width: 100%;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.kpi-card-action:focus-visible {
+    outline: 3px solid rgba(0, 51, 153, 0.25);
+    outline-offset: 3px;
+}
+
 .kpi-card::before {
     content: '';
     position: absolute;
@@ -329,6 +342,85 @@ body {
 .kpi-unit { font-size: 1rem; font-weight: 500; color: var(--text-muted); }
 
 .kpi-trend { font-size: 0.85rem; display: flex; align-items: center; gap: 0.4rem; }
+
+.manager-spotlight-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1.45fr) auto auto;
+    gap: 1.2rem;
+    align-items: center;
+    margin-top: 1rem;
+    padding: 1.35rem 1.45rem;
+    border-radius: var(--radius-lg);
+    background:
+        radial-gradient(circle at top right, rgba(96, 165, 250, 0.25), transparent 32%),
+        linear-gradient(135deg, #0f3460 0%, #174a84 50%, #2c6cb0 100%);
+    color: #f8fbff;
+    box-shadow: var(--shadow-md);
+}
+
+.manager-spotlight-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.3rem 0.7rem;
+    border-radius: var(--radius-full);
+    background: rgba(255, 255, 255, 0.14);
+    color: #dbeafe;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.manager-spotlight-copy h2 {
+    margin: 0.6rem 0 0.5rem;
+    font-size: 1.25rem;
+    line-height: 1.2;
+}
+
+.manager-spotlight-copy p {
+    margin: 0;
+    color: rgba(236, 244, 255, 0.78);
+    font-size: 0.9rem;
+    line-height: 1.5;
+    max-width: 620px;
+}
+
+.manager-spotlight-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+    gap: 0.75rem;
+}
+
+.manager-spotlight-metric {
+    padding: 0.9rem 1rem;
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.manager-spotlight-metric span,
+.manager-hero-chip span {
+    display: block;
+    color: rgba(236, 244, 255, 0.78);
+    font-size: 0.75rem;
+}
+
+.manager-spotlight-metric strong {
+    display: block;
+    margin-top: 0.4rem;
+    font-size: 1.45rem;
+    color: #ffffff;
+}
+
+.manager-spotlight-action {
+    border-color: rgba(255, 255, 255, 0.18);
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.manager-spotlight-action:hover {
+    background: rgba(255, 255, 255, 0.14);
+}
 
 /* Data Card & Tabs */
 .data-card {
@@ -557,6 +649,250 @@ body {
 .section-card-header p {
     color: var(--text-muted);
     font-size: 0.88rem;
+}
+
+.manager-insight-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.insight-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    padding: 1.25rem;
+}
+
+.manager-hero-card {
+    margin-top: 1rem;
+    background:
+        radial-gradient(circle at top left, rgba(59, 130, 246, 0.16), transparent 24%),
+        linear-gradient(160deg, #0d2744 0%, #12345b 48%, #164170 100%);
+    border: 0;
+    color: #f8fbff;
+}
+
+.manager-hero-card .insight-card-header h2,
+.manager-hero-card .manager-activity-empty {
+    color: #f8fbff;
+}
+
+.manager-hero-card .insight-card-header p {
+    color: rgba(236, 244, 255, 0.76);
+}
+
+.manager-hero-card .btn-outline {
+    border-color: rgba(191, 219, 254, 0.28);
+    color: #f8fbff;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.manager-hero-card .btn-outline:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+}
+
+.manager-hero-chip-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.manager-hero-chip {
+    padding: 0.95rem 1rem;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(191, 219, 254, 0.12);
+    background: rgba(255, 255, 255, 0.07);
+}
+
+.manager-hero-chip strong {
+    display: block;
+    margin-top: 0.4rem;
+    font-size: 1.35rem;
+    color: #ffffff;
+}
+
+.manager-hero-chip.tone-success {
+    background: rgba(34, 197, 94, 0.12);
+}
+
+.manager-hero-chip.tone-danger {
+    background: rgba(239, 68, 68, 0.14);
+}
+
+.manager-hero-chip.tone-warning {
+    background: rgba(245, 158, 11, 0.14);
+}
+
+.insight-card-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+}
+
+.insight-card-header h2 {
+    font-size: 1rem;
+    margin-bottom: 0.3rem;
+}
+
+.insight-card-header p,
+.insight-chart-row small,
+.manager-activity-item span,
+.manager-activity-item time,
+.vendor-performance-mini-item span {
+    color: var(--text-muted);
+    font-size: 0.83rem;
+}
+
+.insight-chart-list,
+.queue-signal-list,
+.manager-activity-list,
+.vendor-performance-mini-list {
+    display: grid;
+    gap: 0.9rem;
+}
+
+.manager-trend-panel {
+    min-height: 260px;
+}
+
+.manager-trend-panel-hero {
+    padding: 0.9rem 1rem 0.35rem;
+    border-radius: var(--radius-lg);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(191, 219, 254, 0.12);
+}
+
+.manager-trend-panel canvas {
+    max-height: 260px;
+}
+
+.manager-skeleton-card {
+    position: relative;
+    overflow: hidden;
+}
+
+.manager-skeleton-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
+    animation: managerSkeletonSweep 1.35s ease-in-out infinite;
+}
+
+.manager-skeleton-line {
+    display: block;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.14);
+}
+
+.manager-skeleton-line.short {
+    width: 42%;
+    height: 10px;
+}
+
+.manager-skeleton-line.value {
+    width: 68%;
+    height: 26px;
+    margin-top: 10px;
+}
+
+.manager-skeleton-chart {
+    min-height: 260px;
+}
+
+.manager-skeleton-row {
+    min-height: 64px;
+}
+
+.manager-skeleton-signal {
+    min-height: 82px;
+    background: #f8fafc;
+}
+
+@keyframes managerSkeletonSweep {
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+.insight-chart-row-head,
+.manager-activity-item,
+.vendor-performance-mini-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: center;
+}
+
+.insight-chart-row-head span,
+.breakdown-grid span,
+.queue-signal-item span {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.insight-chart-track {
+    height: 10px;
+    border-radius: var(--radius-full);
+    background: #e2e8f0;
+    overflow: hidden;
+    margin: 0.45rem 0 0.35rem;
+}
+
+.insight-chart-track > div {
+    height: 100%;
+    border-radius: inherit;
+}
+
+.breakdown-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.85rem;
+}
+
+.breakdown-grid > div,
+.queue-signal-item {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 0.95rem;
+    background: var(--bg-main);
+}
+
+.breakdown-grid strong,
+.queue-signal-item strong {
+    display: block;
+    margin-top: 0.35rem;
+    color: var(--text-main);
+    font-size: 1.6rem;
+}
+
+.manager-activity-item,
+.vendor-performance-mini-item {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 0.85rem 0.95rem;
+    background: var(--bg-main);
+}
+
+.manager-activity-item strong,
+.vendor-performance-mini-item strong {
+    display: block;
+    color: var(--text-main);
+}
+
+.manager-activity-empty {
+    color: var(--text-muted);
+    padding: 0.5rem 0;
 }
 
 .verification-results-grid {
@@ -1103,7 +1439,8 @@ body {
     }
 
     .manager-dashboard .manager-section-grid,
-    .manager-dashboard .verification-results-grid {
+    .manager-dashboard .verification-results-grid,
+    .manager-dashboard .manager-insight-grid {
         grid-template-columns: 1fr;
     }
 
@@ -1111,6 +1448,12 @@ body {
         align-items: flex-start;
         flex-direction: column;
         gap: 0.5rem;
+    }
+
+    .manager-dashboard .manager-activity-item,
+    .manager-dashboard .vendor-performance-mini-item {
+        align-items: flex-start;
+        flex-direction: column;
     }
 
     .manager-dashboard .modal-overlay {
