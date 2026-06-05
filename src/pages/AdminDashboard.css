@@ -315,6 +315,85 @@
   padding: 10px 0;
 }
 
+.admin-skeleton {
+  width: 100%;
+}
+
+.admin-skeleton-stack {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+
+.admin-skeleton--label {
+  height: 12px;
+  max-width: 96px;
+}
+
+.admin-skeleton--icon {
+  border-radius: 999px;
+  flex-shrink: 0;
+  height: 18px;
+  width: 18px;
+}
+
+.admin-skeleton--value {
+  height: 34px;
+  max-width: 78px;
+  margin-bottom: 8px;
+}
+
+.admin-skeleton--meta {
+  height: 12px;
+  max-width: 180px;
+}
+
+.admin-skeleton--action-title {
+  height: 12px;
+  max-width: 132px;
+}
+
+.admin-skeleton--action-subtitle {
+  height: 10px;
+  max-width: 160px;
+}
+
+.admin-skeleton--table-head {
+  height: 10px;
+  max-width: 84px;
+}
+
+.admin-skeleton--table-cell {
+  height: 14px;
+  max-width: 148px;
+}
+
+.admin-skeleton--activity-title {
+  height: 14px;
+  max-width: 156px;
+}
+
+.admin-skeleton--activity-time {
+  height: 10px;
+  max-width: 112px;
+}
+
+.admin-skeleton--activity-chip {
+  border-radius: 999px;
+  height: 28px;
+  width: 110px;
+}
+
+.admin-skeleton--activity-body {
+  height: 13px;
+  max-width: 92%;
+}
+
+.admin-skeleton--activity-foot {
+  height: 10px;
+  max-width: 72px;
+}
+
 @media (max-width: 1120px) {
   .admin-users-top-row {
     grid-template-columns: 1fr;

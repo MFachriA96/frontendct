@@ -82,6 +82,10 @@ const ScanOfficerDashboard = () => {
   const [queueLoading, setQueueLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [contextLoading, setContextLoading] = useState(false);
+  const [cameraStarting, setCameraStarting] = useState(false);
+  const [scanResolving, setScanResolving] = useState(false);
+  const [verifyLoading, setVerifyLoading] = useState(false);
+  const [finalizeLoading, setFinalizeLoading] = useState(false);
   const [queueShipments, setQueueShipments] = useState([]);
   const [historyInbounds, setHistoryInbounds] = useState([]);
   const [activeShipment, setActiveShipment] = useState(null);
@@ -119,6 +123,7 @@ const ScanOfficerDashboard = () => {
     || (idGudang ? `Gudang ${idGudang}` : 'Gudang belum diatur');
   const receiverName = user?.nama || 'Petugas penerima';
   const hasWarehouseScope = Boolean(idGudang);
+  const receiveBusy = cameraStarting || scanResolving || contextLoading;
 
   const currentTitle = activeTab === 'queue'
     ? 'Antrian penerimaan'
@@ -201,6 +206,7 @@ const ScanOfficerDashboard = () => {
     }
 
     setCameraActive(false);
+    setCameraStarting(false);
     setCameraError('');
     setFlashSupported(false);
     setFlashEnabled(false);
@@ -254,6 +260,7 @@ const ScanOfficerDashboard = () => {
     if (!tokenValue || !idGudang) return;
 
     setLoading(true);
+    setScanResolving(true);
     setScanFeedback(null);
     try {
       const token = localStorage.getItem('token');
@@ -311,11 +318,13 @@ const ScanOfficerDashboard = () => {
         message: error.response?.data?.message || 'Gagal scan box.',
       });
     } finally {
+      setScanResolving(false);
       setLoading(false);
     }
   }, [fetchHistory, fetchQueue, idGudang, loadShipmentContext, qrToken, receiverName, stopCamera]);
 
   const startCamera = useCallback(async () => {
+    setCameraStarting(true);
     setCameraError('');
     setScanFeedback(null);
     setCameraSuccessOverlay(null);
@@ -327,11 +336,13 @@ const ScanOfficerDashboard = () => {
 
     if (!hasWarehouseScope) {
       setCameraError('Akun ini belum punya assignment gudang. Hubungi admin sebelum scan.');
+      setCameraStarting(false);
       return;
     }
 
     if (!navigator.mediaDevices?.getUserMedia) {
       setCameraError('Browser ini belum mendukung akses kamera. Pakai input manual saja.');
+      setCameraStarting(false);
       return;
     }
 
@@ -362,6 +373,7 @@ const ScanOfficerDashboard = () => {
       }
 
       setCameraActive(true);
+      setCameraStarting(false);
 
       const scanFrame = async () => {
         if (!videoRef.current || !streamRef.current) return;
@@ -414,6 +426,7 @@ const ScanOfficerDashboard = () => {
         ? 'Izin kamera diblokir. Aktifkan akses kamera di pengaturan browser.'
         : 'Kamera tidak bisa dibuka. Cek izin browser atau pakai input manual.';
       setCameraError(message);
+      setCameraStarting(false);
       stopCamera();
     }
   }, [handleScanSubmit, hasWarehouseScope, stopCamera]);
@@ -466,6 +479,7 @@ const ScanOfficerDashboard = () => {
     if (!activeInbound?.ID_inbound || !activeBox?.ID_outbound_box) return;
 
     setLoading(true);
+    setVerifyLoading(true);
     try {
       const token = localStorage.getItem('token');
       const payload = buildVerifyBoxPayload({
@@ -497,6 +511,7 @@ const ScanOfficerDashboard = () => {
         message: error.response?.data?.message || 'Gagal verifikasi box.',
       });
     } finally {
+      setVerifyLoading(false);
       setLoading(false);
     }
   };
@@ -505,6 +520,7 @@ const ScanOfficerDashboard = () => {
     if (!activeInbound?.ID_inbound) return;
 
     setLoading(true);
+    setFinalizeLoading(true);
     try {
       const token = localStorage.getItem('token');
       const response = await axios.post(`${API_BASE_URL}/api/receiving/${activeInbound.ID_inbound}/finalize`, {}, {
@@ -530,6 +546,7 @@ const ScanOfficerDashboard = () => {
         message: error.response?.data?.message || 'Gagal menyelesaikan receiving.',
       });
     } finally {
+      setFinalizeLoading(false);
       setLoading(false);
     }
   };
@@ -590,10 +607,19 @@ const ScanOfficerDashboard = () => {
               <span>{cameraSuccessOverlay.message}</span>
             </div>
           )}
+          {scanResolving && !cameraSuccessOverlay ? (
+            <div className="camera-loading-overlay">
+              <div className="camera-loading-overlay__spinner">
+                <i className="fa-solid fa-spinner fa-spin"></i>
+              </div>
+              <strong>Mengecek box...</strong>
+              <span>Sistem sedang mencari shipment dan detail box dari QR ini.</span>
+            </div>
+          ) : null}
           {(!cameraActive || cameraError) && !cameraSuccessOverlay && (
             <div className="camera-placeholder">
-              <i className={`fa-solid ${cameraError ? 'fa-video-slash' : 'fa-camera'}`}></i>
-              <p>{cameraError || 'Menyalakan kamera...'}</p>
+              <i className={`fa-solid ${cameraError ? 'fa-video-slash' : cameraStarting ? 'fa-spinner fa-spin' : 'fa-camera'}`}></i>
+              <p>{cameraError || (cameraStarting ? 'Menyalakan kamera...' : 'Kamera siap dipakai.')}</p>
               <div className="camera-actions">
                 <button type="button" className="receiving-btn receiving-btn--ghost" onClick={startCamera}>
                   Coba lagi
@@ -722,16 +748,26 @@ const ScanOfficerDashboard = () => {
 
           <div className="receiving-sheet__summary">
             <div className="receiving-sheet__summary-copy">
-              <strong>{activeShipment?.vendor?.nama_vendor || 'Belum ada shipment aktif'}</strong>
+              <strong>
+                {receiveBusy
+                  ? 'Menyiapkan sesi shipment...'
+                  : activeShipment?.vendor?.nama_vendor || 'Belum ada shipment aktif'}
+              </strong>
               <span>
-                {activeShipment
+                {scanResolving
+                  ? 'QR sedang dicocokkan dengan box dan shipment.'
+                  : contextLoading
+                    ? 'Memuat detail shipment aktif.'
+                    : activeShipment
                   ? `${progress.scannedBoxes} dari ${progress.totalBoxes} box`
                   : `Cakupan gudang: ${assignedWarehouseLabel}`}
               </span>
             </div>
             <div className="receiving-sheet__summary-side">
               <span>
-                {activeShipment
+                {finalizeLoading
+                  ? 'Menyelesaikan...'
+                  : activeShipment
                   ? `${progress.issueBoxes} masalah`
                   : receiverName}
               </span>
@@ -742,7 +778,7 @@ const ScanOfficerDashboard = () => {
                   onClick={() => void handleFinalizeReceiving()}
                   disabled={loading || progress.totalBoxes === 0 || progress.scannedBoxes < progress.totalBoxes}
                 >
-                  Selesaikan
+                  {finalizeLoading ? 'Menyelesaikan...' : 'Selesaikan'}
                 </button>
               ) : null}
             </div>
@@ -780,6 +816,28 @@ const ScanOfficerDashboard = () => {
               </div>
             ) : null}
 
+            {receiveBusy && !activeBox ? (
+              <div className="receiving-sheet__loading">
+                <div className="receiving-sheet__loading-icon">
+                  <i className="fa-solid fa-spinner fa-spin"></i>
+                </div>
+                <strong>
+                  {scanResolving
+                    ? 'Mengecek QR dan box'
+                    : cameraStarting
+                      ? 'Menyiapkan kamera'
+                      : 'Memuat shipment'}
+                </strong>
+                <span>
+                  {scanResolving
+                    ? 'Tunggu sebentar, sistem sedang mencocokkan QR dengan shipment aktif.'
+                    : cameraStarting
+                      ? 'Kamera sedang diaktifkan supaya siap dipakai scan.'
+                      : 'Data shipment aktif sedang dimuat ke panel ini.'}
+                </span>
+              </div>
+            ) : null}
+
             {scanMethod === 'manual' ? (
               <div className="receiving-manual">
                 <div className="receiving-field-group">
@@ -799,7 +857,7 @@ const ScanOfficerDashboard = () => {
                   type="button"
                   onClick={() => void handleScanSubmit()}
                 >
-                  {loading ? 'Memproses...' : 'Scan box ini'}
+                  {scanResolving ? 'Mengecek token...' : 'Scan box ini'}
                 </AppButton>
               </div>
             ) : null}
@@ -862,14 +920,14 @@ const ScanOfficerDashboard = () => {
                     type="button"
                     onClick={() => void handleVerifyBox()}
                   >
-                    {loading ? 'Menyimpan...' : 'Simpan dan lanjut'}
+                    {verifyLoading ? 'Menyimpan...' : 'Simpan dan lanjut'}
                   </AppButton>
                   <button type="button" className="receiving-btn receiving-btn--ghost" onClick={resetVerificationState} disabled={loading}>
                     Kosongkan box
                   </button>
                 </div>
               </div>
-            ) : !activeShipment ? (
+            ) : receiveBusy ? null : !activeShipment ? (
               <div className="receiving-sheet__empty">
                 <strong>Scan box untuk mulai</strong>
                 <span>Sesi shipment akan muncul otomatis setelah QR atau token valid terbaca.</span>
@@ -1017,7 +1075,7 @@ const ScanOfficerDashboard = () => {
       ) : null}
 
       <main className={`receiving-mobile__content ${activeTab === 'receive' ? 'is-receive' : ''}`}>
-        {contextLoading && activeTab === 'receive' ? (
+        {contextLoading && activeTab !== 'receive' ? (
           <div className="receiving-mobile__loading">Memuat shipment...</div>
         ) : null}
         {activeTab === 'queue' ? renderQueueView() : null}

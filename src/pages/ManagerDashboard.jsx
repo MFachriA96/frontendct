@@ -12,12 +12,42 @@ import {
   buildTrendChartData,
 } from '../utils/dashboardLogic';
 import AppSidebar from '../components/navigation/AppSidebar';
+import AppSkeleton from '../components/ui/AppSkeleton';
 import ConfirmModal from '../components/ui/ConfirmModal';
 import StatusModal from '../components/ui/StatusModal';
 import { buildWarehouseScopedParams } from '../utils/receivingWorkspace';
 import './ManagerDashboard.css';
 
 const LazyAnalyticsTrendChart = lazy(() => import('../components/AnalyticsTrendChart'));
+
+const ManagerKpiSkeleton = ({ count = 4 }) => (
+  <div className="stats-kpi-container">
+    {Array.from({ length: count }).map((_, index) => (
+      <div key={`manager-kpi-skeleton-${index}`} className="kpi-card manager-skeleton-card">
+        <div className="kpi-header">
+          <AppSkeleton style={{ height: 10, maxWidth: 92 }} />
+          <AppSkeleton style={{ width: 16, height: 16, borderRadius: 999 }} />
+        </div>
+        <AppSkeleton style={{ height: 34, maxWidth: 72, marginBottom: 10 }} />
+        <AppSkeleton style={{ height: 10, maxWidth: 180 }} />
+      </div>
+    ))}
+  </div>
+);
+
+const ManagerTableSkeleton = ({ columns = 6, rows = 5 }) => (
+  <tbody>
+    {Array.from({ length: rows }).map((_, rowIndex) => (
+      <tr key={`manager-table-skeleton-${rowIndex}`}>
+        {Array.from({ length: columns }).map((_, colIndex) => (
+          <td key={`manager-table-skeleton-cell-${rowIndex}-${colIndex}`}>
+            <AppSkeleton style={{ height: 12, maxWidth: colIndex === columns - 1 ? 120 : 150 }} />
+          </td>
+        ))}
+      </tr>
+    ))}
+  </tbody>
+);
 
 const ManagerDashboard = () => {
   const [, setActiveTab] = useState('overview');
@@ -340,6 +370,9 @@ const ManagerDashboard = () => {
     pendingCount,
     analytics: analyticsModel,
   });
+  const showManagerDashboardSkeleton = dashboardLoading && shipments.length === 0 && discrepancies.length === 0 && !managerOverview;
+  const showManagerShipmentsSkeleton = dashboardLoading && shipments.length === 0;
+  const showManagerReportsSkeleton = secondaryLoading && reportsData.length === 0;
   const assignedWarehouse = user?.warehouse || null;
   const warehouseScopeLabel = warehouseScope === 'default'
     ? (assignedWarehouse?.nama_gudang || 'Gudang default akun')
@@ -678,39 +711,43 @@ const ManagerDashboard = () => {
               </div>
 
               {/* Stats KPI Row */}
-              <div className="stats-kpi-container">
-                {managerPrimaryCards.map((card) => (
-                  <button
-                    key={card.key}
-                    type="button"
-                    className={`kpi-card kpi-card-action ${card.tone === 'blue'
-                        ? 'border-blue'
-                        : card.tone === 'info'
-                          ? 'border-info'
-                          : card.tone === 'success'
-                            ? 'border-success'
-                            : 'border-warning'
-                      }`}
-                    onClick={() => openManagerPrimaryCard(card)}
-                  >
-                    <div className="kpi-header">
-                      <span className={`kpi-title ${card.key === 'pending_review' && card.value > 0 ? 'is-urgent' : ''}`}>{managerCardLabelMap[card.label] || card.label}</span>
-                      <i className={`fa-solid text-muted ${card.key === 'total'
-                          ? 'fa-box-open'
-                          : card.key === 'shipping'
-                            ? 'fa-truck-fast'
-                            : card.key === 'delivered'
-                              ? 'fa-circle-check'
-                              : 'fa-triangle-exclamation'
-                        }`}></i>
-                    </div>
-                    <div className={`kpi-value ${card.key === 'pending_review' && card.value > 0 ? 'text-warning' : ''}`}>{card.value}</div>
-                    <div className={`kpi-trend ${card.key === 'pending_review' && card.value > 0 ? 'text-danger kpi-trend-urgent' : 'text-muted'}`}>
-                      {card.key === 'total' ? <i className="fa-solid fa-arrow-trend-up"></i> : null} {card.description}
-                    </div>
-                  </button>
-                ))}
-              </div>
+              {showManagerDashboardSkeleton ? (
+                <ManagerKpiSkeleton />
+              ) : (
+                <div className="stats-kpi-container">
+                  {managerPrimaryCards.map((card) => (
+                    <button
+                      key={card.key}
+                      type="button"
+                      className={`kpi-card kpi-card-action ${card.tone === 'blue'
+                          ? 'border-blue'
+                          : card.tone === 'info'
+                            ? 'border-info'
+                            : card.tone === 'success'
+                              ? 'border-success'
+                              : 'border-warning'
+                        }`}
+                      onClick={() => openManagerPrimaryCard(card)}
+                    >
+                      <div className="kpi-header">
+                        <span className={`kpi-title ${card.key === 'pending_review' && card.value > 0 ? 'is-urgent' : ''}`}>{managerCardLabelMap[card.label] || card.label}</span>
+                        <i className={`fa-solid text-muted ${card.key === 'total'
+                            ? 'fa-box-open'
+                            : card.key === 'shipping'
+                              ? 'fa-truck-fast'
+                              : card.key === 'delivered'
+                                ? 'fa-circle-check'
+                                : 'fa-triangle-exclamation'
+                          }`}></i>
+                      </div>
+                      <div className={`kpi-value ${card.key === 'pending_review' && card.value > 0 ? 'text-warning' : ''}`}>{card.value}</div>
+                      <div className={`kpi-trend ${card.key === 'pending_review' && card.value > 0 ? 'text-danger kpi-trend-urgent' : 'text-muted'}`}>
+                        {card.key === 'total' ? <i className="fa-solid fa-arrow-trend-up"></i> : null} {card.description}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
 
               <div className="manager-visual-grid mt-4">
                 <section className="manager-visual-card manager-visual-card--chart">
@@ -724,13 +761,13 @@ const ManagerDashboard = () => {
                     </button>
                   </div>
 
-                  {analyticsPending ? (
+                  {showManagerDashboardSkeleton || analyticsPending ? (
                     <>
                       <div className="manager-visual-chip-row">
                         {Array.from({ length: 3 }).map((_, index) => (
                           <div key={index} className="manager-visual-chip manager-skeleton-card">
-                            <span className="manager-skeleton-line short"></span>
-                            <strong className="manager-skeleton-line value"></strong>
+                            <AppSkeleton style={{ height: 10, maxWidth: 88, marginBottom: 10 }} />
+                            <AppSkeleton style={{ height: 28, maxWidth: 72 }} />
                           </div>
                         ))}
                       </div>
@@ -778,7 +815,22 @@ const ManagerDashboard = () => {
                     {pendingReviewQueue.length > 0 ? <span className="status-badge status-warning">{pendingReviewQueue.length} kasus</span> : null}
                   </div>
 
-                  {pendingReviewQueue.length > 0 ? (
+                  {showManagerDashboardSkeleton ? (
+                    <div className="vendor-performance-mini-list manager-priority-list">
+                      {Array.from({ length: 3 }).map((_, index) => (
+                        <div key={`priority-skeleton-${index}`} className="vendor-performance-mini-item manager-priority-item manager-skeleton-card">
+                          <div className="manager-priority-copy">
+                            <AppSkeleton style={{ height: 14, maxWidth: 150, marginBottom: 8 }} />
+                            <AppSkeleton style={{ height: 10, maxWidth: 110 }} />
+                          </div>
+                          <div className="manager-priority-meta">
+                            <AppSkeleton style={{ height: 12, maxWidth: 80, marginBottom: 8 }} />
+                            <AppSkeleton style={{ height: 10, maxWidth: 140 }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : pendingReviewQueue.length > 0 ? (
                     <div className="vendor-performance-mini-list manager-priority-list">
                       {pendingReviewQueue.slice(0, 3).map((item) => (
                         <button key={item.ID_discrepancy} type="button" className="vendor-performance-mini-item manager-priority-item" onClick={() => setActiveTab('pending')}>
@@ -811,24 +863,35 @@ const ManagerDashboard = () => {
                       <h2>Breakdown selisih</h2>
                     </div>
                   </div>
-                  <div className="manager-visual-stat-grid">
-                    <div className="manager-visual-stat">
-                      <span>Match</span>
-                      <strong>{discrepancyStatusCounts.match || 0}</strong>
+                  {showManagerDashboardSkeleton ? (
+                    <div className="manager-visual-stat-grid">
+                      {Array.from({ length: 4 }).map((_, index) => (
+                        <div key={`breakdown-skeleton-${index}`} className="manager-visual-stat manager-skeleton-card">
+                          <AppSkeleton style={{ height: 10, maxWidth: 70, marginBottom: 10 }} />
+                          <AppSkeleton style={{ height: 28, maxWidth: 44 }} />
+                        </div>
+                      ))}
                     </div>
-                    <div className="manager-visual-stat">
-                      <span>Mismatch</span>
-                      <strong>{discrepancyStatusCounts.mismatch || 0}</strong>
+                  ) : (
+                    <div className="manager-visual-stat-grid">
+                      <div className="manager-visual-stat">
+                        <span>Match</span>
+                        <strong>{discrepancyStatusCounts.match || 0}</strong>
+                      </div>
+                      <div className="manager-visual-stat">
+                        <span>Mismatch</span>
+                        <strong>{discrepancyStatusCounts.mismatch || 0}</strong>
+                      </div>
+                      <div className="manager-visual-stat">
+                        <span>Missing</span>
+                        <strong>{discrepancyStatusCounts.missing || 0}</strong>
+                      </div>
+                      <div className="manager-visual-stat">
+                        <span>Over</span>
+                        <strong>{discrepancyStatusCounts.over || 0}</strong>
+                      </div>
                     </div>
-                    <div className="manager-visual-stat">
-                      <span>Missing</span>
-                      <strong>{discrepancyStatusCounts.missing || 0}</strong>
-                    </div>
-                    <div className="manager-visual-stat">
-                      <span>Over</span>
-                      <strong>{discrepancyStatusCounts.over || 0}</strong>
-                    </div>
-                  </div>
+                  )}
                 </section>
 
                 <section className="manager-visual-card manager-visual-card--vendor">
@@ -838,7 +901,22 @@ const ManagerDashboard = () => {
                       <h2>Paling butuh perhatian</h2>
                     </div>
                   </div>
-                  {analyticsData.length > 0 ? (
+                  {showManagerDashboardSkeleton ? (
+                    <div className="vendor-performance-mini-list">
+                      {Array.from({ length: 3 }).map((_, index) => (
+                        <div key={`vendor-risk-skeleton-${index}`} className="vendor-performance-mini-item manager-skeleton-card">
+                          <div>
+                            <AppSkeleton style={{ height: 14, maxWidth: 170, marginBottom: 8 }} />
+                            <AppSkeleton style={{ height: 10, maxWidth: 120 }} />
+                          </div>
+                          <div>
+                            <AppSkeleton style={{ height: 16, maxWidth: 56, marginBottom: 8 }} />
+                            <AppSkeleton style={{ height: 10, maxWidth: 90 }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : analyticsData.length > 0 ? (
                     <div className="vendor-performance-mini-list">
                       {analyticsData.slice(0, 3).map((item) => (
                         <div key={item.vendor_id || item.vendor_name || item.vendor} className="vendor-performance-mini-item">
@@ -889,46 +967,31 @@ const ManagerDashboard = () => {
               </div>
 
 
-              <div className="manager-section-grid">
-
-
-                <div className="section-summary-card">
-
-
-                  <span>Total Shipments</span>
-
-
-                  <strong>{shipmentCounts.total}</strong>
-
-
+              {showManagerShipmentsSkeleton ? (
+                <div className="manager-section-grid">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <div key={`shipment-summary-skeleton-${index}`} className="section-summary-card manager-skeleton-card">
+                      <AppSkeleton style={{ height: 10, maxWidth: 110, marginBottom: 10 }} />
+                      <AppSkeleton style={{ height: 30, maxWidth: 64 }} />
+                    </div>
+                  ))}
                 </div>
-
-
-                <div className="section-summary-card">
-
-
-                  <span>Shipping</span>
-
-
-                  <strong>{shipmentCounts.shipping}</strong>
-
-
+              ) : (
+                <div className="manager-section-grid">
+                  <div className="section-summary-card">
+                    <span>Total Shipments</span>
+                    <strong>{shipmentCounts.total}</strong>
+                  </div>
+                  <div className="section-summary-card">
+                    <span>Shipping</span>
+                    <strong>{shipmentCounts.shipping}</strong>
+                  </div>
+                  <div className="section-summary-card">
+                    <span>Discrepancy</span>
+                    <strong>{shipmentCounts.discrepancy}</strong>
+                  </div>
                 </div>
-
-
-                <div className="section-summary-card">
-
-
-                  <span>Discrepancy</span>
-
-
-                  <strong>{shipmentCounts.discrepancy}</strong>
-
-
-                </div>
-
-
-              </div>
+              )}
 
 
               <div className="card data-card mt-4">
@@ -1006,55 +1069,25 @@ const ManagerDashboard = () => {
                     </thead>
 
 
-                    <tbody>
-
-
-                      {dashboardLoading ? (
-
-
-                        <tr><td colSpan="6" className="text-center" style={{ padding: '32px' }}><i className="fa-solid fa-spinner fa-spin"></i> Loading shipments...</td></tr>
-
-
-                      ) : filteredShipments.map(shp => (
-
-
-                        <tr key={shp.ID_outbound}>
-
-
-                          <td className="font-medium">{shp.no_pengiriman || `SHP-${shp.ID_outbound}`}</td>
-
-
-                          <td>{shp.vendor?.nama_vendor || `Vendor ${shp.ID_vendor}`}</td>
-
-
-                          <td>{shp.lokasi_asal || '-'}</td>
-
-
-                          <td className="text-muted">{formatDateTime(shp.waktu_kirim)}</td>
-
-
-                          <td>{getStatusBadge(shp.status)}</td>
-
-
-                          <td><button className="btn btn-sm btn-outline" onClick={() => handleViewShipmentDetails(shp)}>Details</button></td>
-
-
-                        </tr>
-
-
-                      ))}
-
-
-                      {!dashboardLoading && filteredShipments.length === 0 && (
-
-
-                        <tr><td colSpan="6" className="text-center" style={{ padding: '32px' }}>No shipments found for this status.</td></tr>
-
-
-                      )}
-
-
-                    </tbody>
+                    {showManagerShipmentsSkeleton ? (
+                      <ManagerTableSkeleton columns={6} rows={6} />
+                    ) : (
+                      <tbody>
+                        {filteredShipments.map(shp => (
+                          <tr key={shp.ID_outbound}>
+                            <td className="font-medium">{shp.no_pengiriman || `SHP-${shp.ID_outbound}`}</td>
+                            <td>{shp.vendor?.nama_vendor || `Vendor ${shp.ID_vendor}`}</td>
+                            <td>{shp.lokasi_asal || '-'}</td>
+                            <td className="text-muted">{formatDateTime(shp.waktu_kirim)}</td>
+                            <td>{getStatusBadge(shp.status)}</td>
+                            <td><button className="btn btn-sm btn-outline" onClick={() => handleViewShipmentDetails(shp)}>Details</button></td>
+                          </tr>
+                        ))}
+                        {!dashboardLoading && filteredShipments.length === 0 && (
+                          <tr><td colSpan="6" className="text-center" style={{ padding: '32px' }}>No shipments found for this status.</td></tr>
+                        )}
+                      </tbody>
+                    )}
 
 
                   </table>
@@ -1444,45 +1477,47 @@ const ManagerDashboard = () => {
                         <th>Aksi</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {secondaryLoading && reportsData.length === 0 ? (
-                        <tr><td colSpan="6" className="text-center" style={{ padding: '40px' }}><i className="fa-solid fa-spinner fa-spin"></i> Memuat laporan vendor...</td></tr>
-                      ) : reportsData.map(doc => (
-                        <tr key={doc.ID_dokumen}>
-                          <td className="font-medium">{doc.no_dokumen_r1}</td>
-                          <td>DISC-{doc.ID_discrepancy}</td>
-                          <td>
-                              <span className={`status-badge ${doc.status_dokumen === 'draft' ? 'status-pending' : 'status-success'}`}>
-                                {reportStatusText[doc.status_dokumen] || doc.status_dokumen.replace(/_/g, ' ')}
-                              </span>
-                          </td>
-                          <td>{doc.pembuat?.nama || 'Sistem'}</td>
-                          <td className="text-muted">{formatDateTime(doc.dibuat_at)}</td>
-                          <td>
-                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                              <button className="btn btn-sm btn-outline" onClick={() => setReportModalData(doc)}><i className="fa-solid fa-file-pdf"></i> Lihat PDF</button>
-                              {doc.status_dokumen === 'barang_dikirim_ulang' && (
-                                <button
-                                  className="btn btn-sm btn-primary"
-                                  onClick={() => handleUpdateReportStatus(doc.ID_dokumen, 'closing')}
-                                  disabled={loading}
-                                >
-                                  Selesaikan
-                                </button>
-                              )}
+                    {showManagerReportsSkeleton ? (
+                      <ManagerTableSkeleton columns={6} rows={5} />
+                    ) : (
+                      <tbody>
+                        {reportsData.map(doc => (
+                          <tr key={doc.ID_dokumen}>
+                            <td className="font-medium">{doc.no_dokumen_r1}</td>
+                            <td>DISC-{doc.ID_discrepancy}</td>
+                            <td>
+                                <span className={`status-badge ${doc.status_dokumen === 'draft' ? 'status-pending' : 'status-success'}`}>
+                                  {reportStatusText[doc.status_dokumen] || doc.status_dokumen.replace(/_/g, ' ')}
+                                </span>
+                            </td>
+                            <td>{doc.pembuat?.nama || 'Sistem'}</td>
+                            <td className="text-muted">{formatDateTime(doc.dibuat_at)}</td>
+                            <td>
+                              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                <button className="btn btn-sm btn-outline" onClick={() => setReportModalData(doc)}><i className="fa-solid fa-file-pdf"></i> Lihat PDF</button>
+                                {doc.status_dokumen === 'barang_dikirim_ulang' && (
+                                  <button
+                                    className="btn btn-sm btn-primary"
+                                    onClick={() => handleUpdateReportStatus(doc.ID_dokumen, 'closing')}
+                                    disabled={loading}
+                                  >
+                                    Selesaikan
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {!secondaryLoading && reportsData.length === 0 && (
+                          <tr><td colSpan="6" className="text-center" style={{ padding: '40px' }}>
+                            <div className="empty-state" style={{ padding: 0 }}>
+                              <i className="fa-solid fa-folder-open text-muted" style={{ fontSize: '3rem', marginBottom: '1rem' }}></i>
+                                <p>Belum ada dokumen R1 tindak lanjut yang dibuat.</p>
                             </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {!secondaryLoading && reportsData.length === 0 && (
-                        <tr><td colSpan="6" className="text-center" style={{ padding: '40px' }}>
-                          <div className="empty-state" style={{ padding: 0 }}>
-                            <i className="fa-solid fa-folder-open text-muted" style={{ fontSize: '3rem', marginBottom: '1rem' }}></i>
-                              <p>Belum ada dokumen R1 tindak lanjut yang dibuat.</p>
-                          </div>
-                        </td></tr>
-                      )}
-                    </tbody>
+                          </td></tr>
+                        )}
+                      </tbody>
+                    )}
                   </table>
                 </div>
               </div>
