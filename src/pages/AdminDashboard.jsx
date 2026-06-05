@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import AdminModal from '../components/admin/AdminModal';
@@ -135,6 +135,8 @@ const AdminDashboard = () => {
   const [savingUser, setSavingUser] = useState(false);
   const [savingVendor, setSavingVendor] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityLoaded, setActivityLoaded] = useState(false);
   const [usersList, setUsersList] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
@@ -157,6 +159,7 @@ const AdminDashboard = () => {
   });
 
   const navigate = useNavigate();
+  const initializedRef = useRef(false);
 
   const openStatusModal = (type, title, message) => {
     setStatusModal({
@@ -167,63 +170,105 @@ const AdminDashboard = () => {
     });
   };
 
-  const fetchData = async () => {
-    setLoading(true);
+  const getHeaders = useCallback(() => {
+    const token = localStorage.getItem('token');
+    return { Authorization: `Bearer ${token}` };
+  }, []);
+
+  const fetchPrimaryData = useCallback(async ({ withLoading = true } = {}) => {
+    if (withLoading) {
+      setLoading(true);
+    }
     setLoadError('');
 
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
-      const [
-        summaryRes,
-        usersRes,
-        vendorRes,
-        gudangRes,
-        outboundRes,
-        inboundRes,
-        discrepancyRes,
-        documentRes,
-      ] = await Promise.all([
+      const headers = getHeaders();
+      const [summaryRes, usersRes, vendorRes, gudangRes] = await Promise.all([
         axios.get(`${API_BASE_URL}/api/dashboard/summary`, { headers }),
         axios.get(`${API_BASE_URL}/api/master/user`, { headers }),
         axios.get(`${API_BASE_URL}/api/master/vendor`, { headers }),
         axios.get(`${API_BASE_URL}/api/master/gudang`, { headers }),
-        axios.get(`${API_BASE_URL}/api/outbound`, { headers }),
-        axios.get(`${API_BASE_URL}/api/inbound`, { headers }),
-        axios.get(`${API_BASE_URL}/api/discrepancy`, { headers }),
-        axios.get(`${API_BASE_URL}/api/dokumen-r1`, { headers }),
       ]);
 
       const summaryData = summaryRes.data?.data || defaultSummary;
       const userData = usersRes.data?.data?.data || usersRes.data?.data || [];
       const vendorData = vendorRes.data?.data?.data || vendorRes.data?.data || [];
       const warehouseData = gudangRes.data?.data?.data || gudangRes.data?.data || [];
-      const outboundData = outboundRes.data?.data?.data || outboundRes.data?.data || [];
-      const inboundData = inboundRes.data?.data?.data || inboundRes.data?.data || [];
-      const discrepancyData = discrepancyRes.data?.data?.data || discrepancyRes.data?.data || [];
-      const documentData = documentRes.data?.data?.data || documentRes.data?.data || [];
 
       setSummary({ ...defaultSummary, ...summaryData });
       setUsersList(Array.isArray(userData) ? userData : []);
       setVendors(Array.isArray(vendorData) ? vendorData : []);
       setWarehouses(Array.isArray(warehouseData) ? warehouseData : []);
+    } catch (error) {
+      console.error('Error fetching admin primary data:', error);
+      setLoadError(error.response?.data?.message || 'Gagal memuat data inti admin.');
+    } finally {
+      if (withLoading) {
+        setLoading(false);
+      }
+    }
+  }, [getHeaders]);
+
+  const fetchSecondaryData = useCallback(async ({ showLoader = false } = {}) => {
+    if (showLoader) {
+      setActivityLoading(true);
+    }
+
+    try {
+      const headers = getHeaders();
+      const [outboundRes, inboundRes, discrepancyRes, documentRes] = await Promise.all([
+        axios.get(`${API_BASE_URL}/api/outbound`, { headers }),
+        axios.get(`${API_BASE_URL}/api/inbound`, { headers }),
+        axios.get(`${API_BASE_URL}/api/discrepancy`, { headers }),
+        axios.get(`${API_BASE_URL}/api/dokumen-r1`, { headers }),
+      ]);
+
+      const outboundData = outboundRes.data?.data?.data || outboundRes.data?.data || [];
+      const inboundData = inboundRes.data?.data?.data || inboundRes.data?.data || [];
+      const discrepancyData = discrepancyRes.data?.data?.data || discrepancyRes.data?.data || [];
+      const documentData = documentRes.data?.data?.data || documentRes.data?.data || [];
+
       setShipments(Array.isArray(outboundData) ? outboundData : []);
       setInbounds(Array.isArray(inboundData) ? inboundData : []);
       setDiscrepancies(Array.isArray(discrepancyData) ? discrepancyData : []);
       setDocuments(Array.isArray(documentData) ? documentData : []);
       setActivityFeed(buildActivityFeed(outboundData, discrepancyData, documentData, inboundData));
+      setActivityLoaded(true);
     } catch (error) {
-      console.error('Error fetching admin dashboard data:', error);
-      setLoadError(error.response?.data?.message || 'Gagal memuat data dashboard admin.');
+      console.error('Error fetching admin secondary data:', error);
+      setLoadError((prev) => prev || error.response?.data?.message || 'Gagal memuat aktivitas admin.');
     } finally {
-      setLoading(false);
+      if (showLoader) {
+        setActivityLoading(false);
+      }
     }
-  };
+  }, [getHeaders]);
+
+  const fetchAllAdminData = useCallback(async () => {
+    await fetchPrimaryData();
+    await fetchSecondaryData({ showLoader: true });
+  }, [fetchPrimaryData, fetchSecondaryData]);
 
   useEffect(() => {
-    void fetchData();
-  }, []);
+    if (initializedRef.current) {
+      return;
+    }
+
+    initializedRef.current = true;
+
+    void (async () => {
+      await fetchPrimaryData();
+      void fetchSecondaryData();
+    })();
+  }, [fetchPrimaryData, fetchSecondaryData]);
+
+  useEffect(() => {
+    if (activeTab !== 'activity' || activityLoaded || activityLoading) {
+      return;
+    }
+
+    void fetchSecondaryData({ showLoader: true });
+  }, [activeTab, activityLoaded, activityLoading, fetchSecondaryData]);
 
   const handleLogout = async () => {
     try {
@@ -295,7 +340,7 @@ const AdminDashboard = () => {
       await axios.post(`${API_BASE_URL}/api/auth/register`, buildUserRegistrationPayload(newUserForm));
       setIsAddUserModalOpen(false);
       resetNewUserForm();
-      await fetchData();
+      await fetchPrimaryData();
       openStatusModal('success', 'User berhasil dibuat', 'Akun user baru berhasil dibuat.');
     } catch (error) {
       console.error('Error creating user:', error);
@@ -322,7 +367,7 @@ const AdminDashboard = () => {
       });
       setIsAddVendorModalOpen(false);
       resetNewVendorForm();
-      await fetchData();
+      await fetchPrimaryData();
       openStatusModal('success', 'Vendor berhasil dibuat', 'Data master vendor berhasil dibuat.');
     } catch (error) {
       console.error('Error creating vendor:', error);
@@ -387,8 +432,8 @@ const AdminDashboard = () => {
       ) : null}
 
       {activeTab === 'activity' ? (
-        <AppButton type="button" variant="secondary" onClick={fetchData}>
-          Muat ulang
+        <AppButton type="button" variant="secondary" onClick={() => fetchSecondaryData({ showLoader: true })}>
+          {activityLoading ? 'Memuat...' : 'Muat ulang'}
         </AppButton>
       ) : null}
     </>
@@ -453,7 +498,7 @@ const AdminDashboard = () => {
               <AdminPanel
                 title="Daftar user"
                 description="Data user dari backend, termasuk cakupan gudang dan vendor."
-                action={<button type="button" className="admin-link-action" onClick={fetchData}>{loading ? 'Memuat ulang...' : 'Muat ulang'}</button>}
+                action={<button type="button" className="admin-link-action" onClick={() => fetchPrimaryData()}>{loading ? 'Memuat ulang...' : 'Muat ulang'}</button>}
               >
                 <div className="admin-table-wrap">
                   <table className="admin-table">
@@ -566,9 +611,13 @@ const AdminDashboard = () => {
             <AdminPanel
               title="Aktivitas terbaru"
               description="Gabungan aktivitas dari outbound, inbound, selisih, dan dokumen R1."
-              action={<button type="button" className="admin-link-action" onClick={fetchData}>{loading ? 'Memuat ulang...' : 'Muat ulang'}</button>}
+              action={<button type="button" className="admin-link-action" onClick={() => fetchAllAdminData()}>{activityLoading ? 'Memuat ulang...' : 'Muat ulang semua'}</button>}
             >
               <div className="admin-activity-list">
+                {activityLoading && !activityLoaded ? (
+                  <div className="admin-empty-block">Memuat aktivitas terbaru...</div>
+                ) : null}
+
                 {activityFeed.map((item) => (
                   <article key={item.id} className="admin-activity-item">
                     <div className="admin-activity-item__top">
@@ -583,7 +632,7 @@ const AdminDashboard = () => {
                   </article>
                 ))}
 
-                {activityFeed.length === 0 ? (
+                {activityFeed.length === 0 && !activityLoading ? (
                   <div className="admin-empty-block">Belum ada aktivitas terbaru dari backend.</div>
                 ) : null}
               </div>

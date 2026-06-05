@@ -19,6 +19,12 @@ const Login = () => {
       node.remove();
     });
     document.body.style.overflow = '';
+
+    const loginNotice = sessionStorage.getItem('loginNotice');
+    if (loginNotice) {
+      setError(loginNotice);
+      sessionStorage.removeItem('loginNotice');
+    }
   }, []);
 
   const handleLogin = async (event) => {
