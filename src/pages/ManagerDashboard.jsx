@@ -48,7 +48,7 @@ const ManagerDashboard = () => {
   const [shipmentModalData, setShipmentModalData] = useState(null);
   const [reportModalData, setReportModalData] = useState(null);
   const [shipmentDetailsLoading, setShipmentDetailsLoading] = useState(false);
-  const [resolutionType, setResolutionType] = useState('approve'); // approve (mismatch report) or return
+  const [resolutionType, setResolutionType] = useState('approve'); // approve sends R1 follow-up, return closes internally
   const [resolutionNotes, setResolutionNotes] = useState('');
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [statusModal, setStatusModal] = useState({
@@ -57,6 +57,13 @@ const ManagerDashboard = () => {
     title: '',
     message: '',
   });
+  const reportStatusText = {
+    draft: 'Draft',
+    dikirim_ke_vendor: 'Menunggu persetujuan vendor',
+    diproses_vendor: 'Pengembalian sedang diproses',
+    barang_dikirim_ulang: 'Barang sudah dikirim ulang',
+    closing: 'Tindak lanjut selesai',
+  };
 
   const navigate = useNavigate();
 
@@ -216,13 +223,13 @@ const ManagerDashboard = () => {
 
       let generatedReport = null;
       if (resolutionType === 'approve') {
-        const reportDescription = [
-          `Mismatch report generated for discrepancy DISC-${resolveModalData.ID_discrepancy}.`,
-          `Expected quantity: ${resolveModalData.quantity_outbound}.`,
-          `Received quantity accepted: ${resolveModalData.quantity_inbound}.`,
-          `Difference / missing quantity: ${Math.abs(Number(resolveModalData.selisih || 0))}.`,
-          resolutionNotes ? `Manager notes: ${resolutionNotes}` : null,
-        ].filter(Boolean).join('\n');
+          const reportDescription = [
+            `Dokumen R1 dibuat untuk discrepancy DISC-${resolveModalData.ID_discrepancy}.`,
+            `Jumlah yang diharapkan: ${resolveModalData.quantity_outbound}.`,
+            `Jumlah yang diterima: ${resolveModalData.quantity_inbound}.`,
+            `Selisih yang perlu ditindaklanjuti: ${Math.abs(Number(resolveModalData.selisih || 0))}.`,
+            resolutionNotes ? `Instruksi manager: ${resolutionNotes}` : 'Vendor diminta memproses pengembalian atau pengiriman ulang barang terkait.',
+          ].filter(Boolean).join('\n');
 
         const reportRes = await axios.post(`${API_BASE_URL}/api/dokumen-r1`, {
           ID_discrepancy: resolveModalData.ID_discrepancy,
@@ -250,7 +257,7 @@ const ManagerDashboard = () => {
       if (generatedReport) {
         setReportModalData(generatedReport);
       } else {
-        openStatusModal('success', 'Aksi tersimpan', 'Keputusan discrepancy berhasil disimpan.');
+          openStatusModal('success', 'Keputusan tersimpan', 'Discrepancy ditutup tanpa mengirim dokumen R1 ke vendor.');
       }
     } catch (error) {
       console.error(error);
@@ -280,9 +287,11 @@ const ManagerDashboard = () => {
       openStatusModal(
         'success',
         'Status laporan diperbarui',
-        nextStatus === 'closing'
-          ? 'Dokumen R1 berhasil ditutup.'
-          : 'Status dokumen R1 berhasil diperbarui.'
+          nextStatus === 'closing'
+            ? 'Dokumen R1 ditandai selesai.'
+            : nextStatus === 'barang_dikirim_ulang'
+              ? 'Vendor menandai bahwa barang sudah dikirim ulang.'
+              : 'Status dokumen R1 berhasil diperbarui.'
       );
     } catch (error) {
       console.error(error);
@@ -452,7 +461,7 @@ const ManagerDashboard = () => {
       <!doctype html>
       <html>
         <head>
-          <title>${report.no_dokumen_r1 || 'Mismatch Report'}</title>
+          <title>${report.no_dokumen_r1 || 'Dokumen R1'}</title>
           <style>
             body { font-family: Arial, sans-serif; color: #1e293b; margin: 32px; }
             .header { border-bottom: 3px solid #003399; padding-bottom: 18px; margin-bottom: 24px; }
@@ -473,18 +482,18 @@ const ManagerDashboard = () => {
         <body>
           <button onclick="window.print()" style="float:right;padding:10px 14px;background:#003399;color:#fff;border:0;border-radius:6px;">Print / Save PDF</button>
           <div class="header">
-            <h1>Mismatch Report</h1>
+            <h1>Dokumen R1 Tindak Lanjut</h1>
             <div class="muted">${report.no_dokumen_r1 || '-'} • Status: ${(report.status_dokumen || '-').replaceAll('_', ' ')}</div>
           </div>
           <div class="grid">
             <div class="box"><span class="label">Vendor</span><strong>${shipment.vendor?.nama_vendor || '-'}</strong></div>
             <div class="box"><span class="label">Shipment</span><strong>${shipment.no_pengiriman || `SHP-${shipment.ID_outbound || '-'}`}</strong></div>
-            <div class="box"><span class="label">Origin</span><strong>${shipment.lokasi_asal || '-'}</strong></div>
-            <div class="box"><span class="label">Dispatch Time</span><strong>${formatDateTime(shipment.waktu_kirim)}</strong></div>
+            <div class="box"><span class="label">Asal</span><strong>${shipment.lokasi_asal || '-'}</strong></div>
+            <div class="box"><span class="label">Waktu Kirim</span><strong>${formatDateTime(shipment.waktu_kirim)}</strong></div>
           </div>
           <table>
             <thead>
-              <tr><th>Product</th><th>Expected</th><th>Received Accepted</th><th>Difference</th><th>Status</th></tr>
+              <tr><th>Produk</th><th>Ekspektasi</th><th>Diterima</th><th>Selisih</th><th>Status</th></tr>
             </thead>
             <tbody>
               <tr>
@@ -496,9 +505,9 @@ const ManagerDashboard = () => {
               </tr>
             </tbody>
           </table>
-          <h2>Manager Notes</h2>
+          <h2>Instruksi Manager</h2>
           <div class="box notes">${report.keterangan || '-'}</div>
-          <div class="footer">Generated by Epson Verification System on ${formatDateTime(report.dibuat_at || new Date())}</div>
+          <div class="footer">Dibuat oleh Epson Verification System pada ${formatDateTime(report.dibuat_at || new Date())}</div>
         </body>
       </html>
     `;
@@ -1443,22 +1452,22 @@ const ManagerDashboard = () => {
                           <td className="font-medium">{doc.no_dokumen_r1}</td>
                           <td>DISC-{doc.ID_discrepancy}</td>
                           <td>
-                            <span className={`status-badge ${doc.status_dokumen === 'draft' ? 'status-pending' : 'status-success'}`}>
-                              {doc.status_dokumen.replace(/_/g, ' ')}
-                            </span>
+                              <span className={`status-badge ${doc.status_dokumen === 'draft' ? 'status-pending' : 'status-success'}`}>
+                                {reportStatusText[doc.status_dokumen] || doc.status_dokumen.replace(/_/g, ' ')}
+                              </span>
                           </td>
                           <td>{doc.pembuat?.nama || 'Sistem'}</td>
                           <td className="text-muted">{formatDateTime(doc.dibuat_at)}</td>
                           <td>
                             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                               <button className="btn btn-sm btn-outline" onClick={() => setReportModalData(doc)}><i className="fa-solid fa-file-pdf"></i> Lihat PDF</button>
-                              {doc.status_dokumen === 'diproses_vendor' && (
+                              {doc.status_dokumen === 'barang_dikirim_ulang' && (
                                 <button
                                   className="btn btn-sm btn-primary"
                                   onClick={() => handleUpdateReportStatus(doc.ID_dokumen, 'closing')}
                                   disabled={loading}
                                 >
-                                  Tutup
+                                  Selesaikan
                                 </button>
                               )}
                             </div>
@@ -1469,7 +1478,7 @@ const ManagerDashboard = () => {
                         <tr><td colSpan="6" className="text-center" style={{ padding: '40px' }}>
                           <div className="empty-state" style={{ padding: 0 }}>
                             <i className="fa-solid fa-folder-open text-muted" style={{ fontSize: '3rem', marginBottom: '1rem' }}></i>
-                            <p>Belum ada dokumen R1 yang dibuat.</p>
+                              <p>Belum ada dokumen R1 tindak lanjut yang dibuat.</p>
                           </div>
                         </td></tr>
                       )}
@@ -1522,15 +1531,15 @@ const ManagerDashboard = () => {
                   <label className="radio-card">
                     <input type="radio" name="resolution_type" checked={resolutionType === 'approve'} onChange={() => setResolutionType('approve')} />
                     <div className="radio-content">
-                      <h4>Buat laporan selisih</h4>
-                      <p>Terima {resolveModalData.quantity_inbound} item dan buat laporan resmi yang dikirim ke dashboard vendor.</p>
+                      <h4>Kirim dokumen R1 ke vendor</h4>
+                      <p>Buat dokumen tindak lanjut resmi agar vendor memproses pengembalian atau pengiriman ulang barang terkait.</p>
                     </div>
                   </label>
                   <label className="radio-card">
                     <input type="radio" name="resolution_type" checked={resolutionType === 'return'} onChange={() => setResolutionType('return')} />
                     <div className="radio-content">
-                      <h4>Kembalikan item terkait</h4>
-                      <p>Tolak item yang selisih dan tandai untuk dikembalikan ke vendor.</p>
+                      <h4>Selesaikan tanpa dokumen R1</h4>
+                      <p>Tutup discrepancy secara internal tanpa mengirim instruksi tindak lanjut ke vendor.</p>
                     </div>
                   </label>
                 </div>
@@ -1538,7 +1547,7 @@ const ManagerDashboard = () => {
 
               <div className="form-group">
                 <label>Catatan manager (opsional)</label>
-                <textarea className="form-control" rows="3" placeholder="Tambahkan catatan yang akan ikut ke laporan vendor..." value={resolutionNotes} onChange={(e) => setResolutionNotes(e.target.value)}></textarea>
+                <textarea className="form-control" rows="3" placeholder="Tambahkan instruksi yang akan dibaca vendor pada dokumen R1..." value={resolutionNotes} onChange={(e) => setResolutionNotes(e.target.value)}></textarea>
               </div>
             </div>
             <div className="modal-footer">
@@ -1557,7 +1566,7 @@ const ManagerDashboard = () => {
           <div className="modal report-preview-modal">
             <div className="modal-header">
               <div>
-                <h2>Laporan selisih yang dibuat</h2>
+                <h2>Dokumen R1 yang dikirim</h2>
                 <p>{reportModalData.no_dokumen_r1 || 'Dokumen R1'}</p>
               </div>
               <button className="close-btn" onClick={() => setReportModalData(null)}><i className="fa-solid fa-xmark"></i></button>
@@ -1569,7 +1578,7 @@ const ManagerDashboard = () => {
                     <span>Vendor</span>
                     <strong>{reportModalData.discrepancy?.shipment?.vendor?.nama_vendor || '-'}</strong>
                   </div>
-                  <span className="status-badge status-danger">Mismatch Report</span>
+                  <span className="status-badge status-danger">Instruksi tindak lanjut</span>
                 </div>
                 <div className="shipment-detail-grid">
                   <div>
@@ -1586,16 +1595,16 @@ const ManagerDashboard = () => {
                   </div>
                   <div>
                     <span>Status dokumen</span>
-                    <strong>{(reportModalData.status_dokumen || '-').replace(/_/g, ' ').toUpperCase()}</strong>
+                      <strong>{(reportStatusText[reportModalData.status_dokumen] || reportModalData.status_dokumen || '-').toUpperCase()}</strong>
                   </div>
                 </div>
                 <div className="report-mismatch-row">
                   <div>
-                    <span>Product</span>
+                    <span>Produk</span>
                     <strong>{reportModalData.discrepancy?.item?.nama_barang || '-'}</strong>
                   </div>
                   <div>
-                    <span>Expected</span>
+                    <span>Ekspektasi</span>
                     <strong>{reportModalData.discrepancy?.quantity_outbound ?? '-'}</strong>
                   </div>
                   <div>
@@ -1608,19 +1617,19 @@ const ManagerDashboard = () => {
                   </div>
                 </div>
                 <div className="report-notes">
-                  <span>Catatan laporan</span>
+                  <span>Instruksi manager</span>
                   <p>{reportModalData.keterangan || '-'}</p>
                 </div>
               </div>
             </div>
             <div className="modal-footer">
-              {reportModalData.status_dokumen === 'diproses_vendor' && (
+              {reportModalData.status_dokumen === 'barang_dikirim_ulang' && (
                 <button
                   className="btn btn-primary"
                   onClick={() => handleUpdateReportStatus(reportModalData.ID_dokumen, 'closing')}
                   disabled={loading}
                 >
-                  {loading ? 'Memproses...' : 'Tutup laporan'}
+                  {loading ? 'Memproses...' : 'Tandai selesai'}
                 </button>
               )}
               <button className="btn btn-outline" onClick={() => setReportModalData(null)}>Tutup</button>

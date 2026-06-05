@@ -43,9 +43,10 @@ const vendorStatusText = {
 
 const reportStatusText = {
   draft: 'Draft',
-  dikirim_ke_vendor: 'Dikirim ke vendor',
-  diproses_vendor: 'Sedang diproses vendor',
-  closing: 'Selesai',
+  dikirim_ke_vendor: 'Menunggu persetujuan vendor',
+  diproses_vendor: 'Pengembalian sedang diproses',
+  barang_dikirim_ulang: 'Barang sudah dikirim ulang',
+  closing: 'Tindak lanjut selesai',
 };
 
 const resolveVendorOrigin = (vendorUser) => (
@@ -909,8 +910,10 @@ const VendorDashboard = () => {
       ]);
 
       const successMessage = nextStatus === 'diproses_vendor'
-        ? 'Dokumen R1 sudah ditandai sedang diproses. Manager akan menerima notifikasi.'
-        : 'Status dokumen berhasil diperbarui.';
+        ? 'Dokumen R1 sudah disetujui. Vendor bisa lanjut memproses pengembalian atau pengiriman ulang barang.'
+        : nextStatus === 'barang_dikirim_ulang'
+          ? 'Status dikirim ulang sudah dikirim ke manager. Dokumen tinggal menunggu penutupan akhir.'
+          : 'Status dokumen berhasil diperbarui.';
       openStatusModal('success', 'Status laporan diperbarui', successMessage);
     } catch (error) {
       console.error('Error updating report status:', error);
@@ -1149,7 +1152,7 @@ const VendorDashboard = () => {
           { value: 'dashboard', label: 'Dashboard', icon: 'fa-solid fa-chart-pie' },
           { value: 'shipments', label: 'Shipment outbound', icon: 'fa-solid fa-truck-fast' },
           { value: 'create-shipment', label: 'Buat shipment', icon: 'fa-solid fa-plus-circle' },
-          { value: 'reports', label: 'Laporan R1', icon: 'fa-regular fa-file-lines' },
+            { value: 'reports', label: 'Tindak lanjut R1', icon: 'fa-regular fa-file-lines' },
           { value: 'notifications', label: 'Notifikasi', icon: 'fa-regular fa-bell' },
         ]}
         onSelect={setActiveTab}
@@ -1165,7 +1168,7 @@ const VendorDashboard = () => {
             {activeTab === 'dashboard' && 'Dashboard vendor'}
             {activeTab === 'shipments' && 'Shipment outbound'}
             {activeTab === 'create-shipment' && 'Buat shipment'}
-            {activeTab === 'reports' && 'Laporan R1'}
+              {activeTab === 'reports' && 'Tindak lanjut R1'}
             {activeTab === 'notifications' && 'Notifikasi'}
             {activeTab === 'settings' && 'Pengaturan'}
           </h1>
@@ -1674,8 +1677,8 @@ const VendorDashboard = () => {
               <div className="card vendor-shipments-card">
                 <div className="card-header vendor-shipments-card__header">
                   <div>
-                    <h2 className="card-title">Laporan R1</h2>
-                    <p className="vendor-create-shipment__subtitle">Pantau tindak lanjut dokumen selisih yang dikirim manager ke vendor.</p>
+                      <h2 className="card-title">Tindak lanjut R1</h2>
+                      <p className="vendor-create-shipment__subtitle">Pantau dokumen instruksi dari manager untuk pengembalian atau pengiriman ulang barang.</p>
                   </div>
                   <div className="vendor-shipments-toolbar__summary">
                     <strong>{reportsData.length}</strong>
@@ -1711,15 +1714,15 @@ const VendorDashboard = () => {
                           <td>{report.discrepancy?.shipment?.no_pengiriman || `SHP-${report.discrepancy?.shipment?.ID_outbound || '-'}`}</td>
                           <td>{report.discrepancy?.item?.nama_barang || '-'}</td>
                           <td>
-                            <span className={`status-badge ${
-                              report.status_dokumen === 'closing'
-                                ? 'status-delivered'
-                                : report.status_dokumen === 'diproses_vendor'
-                                  ? 'status-submitted'
-                                  : 'status-discrepancy'
-                            }`}>
-                              {reportStatusText[report.status_dokumen] || report.status_dokumen}
-                            </span>
+                              <span className={`status-badge ${
+                                report.status_dokumen === 'closing'
+                                  ? 'status-delivered'
+                                  : report.status_dokumen === 'diproses_vendor' || report.status_dokumen === 'barang_dikirim_ulang'
+                                    ? 'status-submitted'
+                                    : 'status-discrepancy'
+                              }`}>
+                                {reportStatusText[report.status_dokumen] || report.status_dokumen}
+                              </span>
                           </td>
                           <td>{formatDateTime(report.dibuat_at)}</td>
                           <td>
@@ -1732,22 +1735,31 @@ const VendorDashboard = () => {
                               >
                                 Detail
                               </AppButton>
-                              {report.status_dokumen === 'dikirim_ke_vendor' && (
-                                <AppButton
-                                  type="button"
-                                  className="vendor-row-btn"
-                                  onClick={() => handleUpdateReportStatus(report.ID_dokumen, 'diproses_vendor')}
-                                >
-                                  Tandai diproses
-                                </AppButton>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
+                                {report.status_dokumen === 'dikirim_ke_vendor' && (
+                                  <AppButton
+                                    type="button"
+                                    className="vendor-row-btn"
+                                    onClick={() => handleUpdateReportStatus(report.ID_dokumen, 'diproses_vendor')}
+                                  >
+                                    Setujui & proses
+                                  </AppButton>
+                                )}
+                                {report.status_dokumen === 'diproses_vendor' && (
+                                  <AppButton
+                                    type="button"
+                                    className="vendor-row-btn"
+                                    onClick={() => handleUpdateReportStatus(report.ID_dokumen, 'barang_dikirim_ulang')}
+                                  >
+                                    Tandai sudah dikirim ulang
+                                  </AppButton>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
                       ))}
                       {!reportsLoading && reportsData.length === 0 && (
                         <tr>
-                          <td colSpan="6" style={{ textAlign: 'center' }}>Belum ada dokumen R1 untuk vendor ini.</td>
+                          <td colSpan="6" style={{ textAlign: 'center' }}>Belum ada dokumen tindak lanjut R1 untuk vendor ini.</td>
                         </tr>
                       )}
                     </tbody>
@@ -2007,7 +2019,7 @@ const VendorDashboard = () => {
                           <p style={{ margin: 0, color: '#475569', fontSize: '0.9rem' }}>{notif.pesan}</p>
                           {notif.related_type === 'dokumen_r1' && (
                             <span style={{ display: 'inline-flex', marginTop: '8px', fontSize: '0.78rem', color: '#b91c1c', fontWeight: 700 }}>
-                              Klik untuk membuka PDF laporan selisih
+                              Klik untuk membuka dokumen tindak lanjut R1
                             </span>
                           )}
                           <span style={{ display: 'block', marginTop: '8px', fontSize: '0.75rem', color: '#94a3b8' }}>
@@ -2065,14 +2077,14 @@ const VendorDashboard = () => {
                     <label className="settings-toggle-row">
                       <div>
                         <strong>Alert selisih</strong>
-                        <span>Tandai mismatch dan laporan R1 dengan warna merah.</span>
+                          <span>Tandai mismatch dan dokumen R1 yang butuh tindak lanjut dengan warna merah.</span>
                       </div>
                       <input type="checkbox" checked={settingsPrefs.discrepancyAlerts} onChange={() => handleSettingsPreferenceChange('discrepancyAlerts')} />
                     </label>
                     <label className="settings-toggle-row">
                       <div>
                         <strong>Alert laporan</strong>
-                        <span>Tampilkan notifikasi saat manager mengirim dokumen R1.</span>
+                          <span>Tampilkan notifikasi saat manager mengirim dokumen R1 untuk pengembalian atau pengiriman ulang.</span>
                       </div>
                       <input type="checkbox" checked={settingsPrefs.reportAlerts} onChange={() => handleSettingsPreferenceChange('reportAlerts')} />
                     </label>
@@ -2109,7 +2121,7 @@ const VendorDashboard = () => {
                       <i className="fa-regular fa-bell"></i>
                       <div>
                         <strong>Buka notifikasi</strong>
-                        <span>Lihat laporan R1, selisih, dan update shipment.</span>
+                          <span>Lihat dokumen R1, selisih, dan update shipment.</span>
                       </div>
                     </button>
                   </div>
@@ -2165,7 +2177,7 @@ const VendorDashboard = () => {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', marginBottom: '20px' }}>
               <div>
-                <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-dark)', marginBottom: '4px' }}>Laporan selisih</h2>
+                  <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-dark)', marginBottom: '4px' }}>Dokumen R1 tindak lanjut</h2>
                 <p style={{ margin: 0, color: '#64748b' }}>{reportModalData.no_dokumen_r1}</p>
               </div>
               <button onClick={() => setReportModalData(null)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#64748b' }}>&times;</button>
@@ -2177,7 +2189,7 @@ const VendorDashboard = () => {
                   <span>Shipment</span>
                   <strong>{reportModalData.discrepancy?.shipment?.no_pengiriman || `SHP-${reportModalData.discrepancy?.shipment?.ID_outbound || '-'}`}</strong>
                 </div>
-                <span className="status-badge status-discrepancy">Selisih</span>
+                <span className="status-badge status-discrepancy">Instruksi manager</span>
               </div>
 
               <div className="shipment-detail-grid">
@@ -2219,7 +2231,7 @@ const VendorDashboard = () => {
               </div>
 
               <div className="vendor-report-notes">
-                <span>Catatan laporan</span>
+                <span>Instruksi manager</span>
                 <p>{reportModalData.keterangan || '-'}</p>
               </div>
             </div>
@@ -2227,7 +2239,12 @@ const VendorDashboard = () => {
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '20px' }}>
               {reportModalData.status_dokumen === 'dikirim_ke_vendor' && (
                 <button className="btn btn-primary" onClick={() => handleUpdateReportStatus(reportModalData.ID_dokumen, 'diproses_vendor')}>
-                  Tandai sedang diproses
+                    Setujui & proses pengembalian
+                </button>
+              )}
+              {reportModalData.status_dokumen === 'diproses_vendor' && (
+                <button className="btn btn-primary" onClick={() => handleUpdateReportStatus(reportModalData.ID_dokumen, 'barang_dikirim_ulang')}>
+                    Tandai barang sudah dikirim ulang
                 </button>
               )}
               <button className="btn btn-outline" onClick={() => setReportModalData(null)}>Tutup</button>

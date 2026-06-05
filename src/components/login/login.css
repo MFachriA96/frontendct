@@ -113,6 +113,10 @@
   width: 100%;
 }
 
+.login-form-card__mobile-brand {
+  display: none;
+}
+
 .login-form-card__intro {
   margin-bottom: 24px;
 }
@@ -204,9 +208,29 @@
   }
 
   .login-form-shell {
+    align-items: center;
+    justify-content: center;
     min-height: 100vh;
     min-height: 100svh;
-    padding: 24px 20px;
+    padding: 28px 20px 24px;
+  }
+
+  .login-form-card__mobile-brand {
+    align-items: flex-start;
+    display: flex;
+    margin-bottom: 18px;
+  }
+
+  .login-form-card__mobile-brand .brand-box {
+    align-items: center;
+    background: #0d55f2;
+    border-radius: 18px;
+    color: #ffffff;
+    display: flex;
+    font-size: 1.35rem;
+    height: 64px;
+    justify-content: center;
+    width: 64px;
   }
 }
 
@@ -223,5 +247,16 @@
 
   .login-form-card__intro h2 {
     font-size: 1.6rem;
+  }
+
+  .login-form-card__mobile-brand {
+    margin-bottom: 16px;
+  }
+
+  .login-form-card__mobile-brand .brand-box {
+    border-radius: 16px;
+    font-size: 1.2rem;
+    height: 58px;
+    width: 58px;
   }
 }
