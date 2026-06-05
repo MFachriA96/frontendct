@@ -363,6 +363,43 @@
   text-align: center;
 }
 
+.receiving-sheet__loading {
+  align-items: center;
+  background: #f7faff;
+  border-radius: 18px;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  padding: 18px 16px;
+  text-align: center;
+}
+
+.receiving-sheet__loading-icon {
+  align-items: center;
+  background: #eaf1ff;
+  border-radius: 999px;
+  color: #0d55f2;
+  display: flex;
+  font-size: 1rem;
+  height: 38px;
+  justify-content: center;
+  width: 38px;
+}
+
+.receiving-sheet__loading strong {
+  color: #142033;
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.receiving-sheet__loading span {
+  color: #65738a;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  max-width: 260px;
+}
+
 .scanner-faq {
   display: grid;
   gap: 10px;
@@ -727,6 +764,44 @@
   position: absolute;
   text-align: center;
   z-index: 3;
+}
+
+.camera-loading-overlay {
+  align-items: center;
+  background: rgba(8, 19, 33, 0.76);
+  color: #f8fbff;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  inset: 0;
+  justify-content: center;
+  padding: 16px;
+  position: absolute;
+  text-align: center;
+  z-index: 3;
+}
+
+.camera-loading-overlay__spinner {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  display: flex;
+  font-size: 1.1rem;
+  height: 50px;
+  justify-content: center;
+  width: 50px;
+}
+
+.camera-loading-overlay strong {
+  font-size: 0.98rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.camera-loading-overlay span {
+  font-size: 0.82rem;
+  line-height: 1.45;
+  max-width: 240px;
 }
 
 .camera-success-icon {

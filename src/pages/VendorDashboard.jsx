@@ -24,6 +24,7 @@ import {
 } from '../utils/dashboardLogic';
 import AppSidebar from '../components/navigation/AppSidebar';
 import AppButton from '../components/ui/AppButton';
+import AppSkeleton from '../components/ui/AppSkeleton';
 import BaseModalShell from '../components/ui/BaseModalShell';
 import ConfirmModal from '../components/ui/ConfirmModal';
 import StatusModal from '../components/ui/StatusModal';
@@ -53,6 +54,52 @@ const resolveVendorOrigin = (vendorUser) => (
   vendorUser?.vendor?.lokasi_vendor
   || vendorUser?.lokasi_vendor
   || ''
+);
+
+const VendorStatsSkeleton = () => (
+  <div className="stats-grid vendor-stats-grid">
+    {Array.from({ length: 4 }).map((_, index) => (
+      <div key={`vendor-stat-skeleton-${index}`} className="stat-card vendor-skeleton-card">
+        <div className="stat-icon icon-navy"><i className="fa-solid fa-chart-simple"></i></div>
+        <div className="stat-info" style={{ width: '100%' }}>
+          <AppSkeleton style={{ height: 12, maxWidth: 96, marginBottom: 8 }} />
+          <AppSkeleton style={{ height: 28, maxWidth: 72, marginBottom: 10 }} />
+          <AppSkeleton style={{ height: 10, maxWidth: 180 }} />
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+const VendorInlineListSkeleton = ({ count = 3 }) => (
+  <div className="vendor-inline-list">
+    {Array.from({ length: count }).map((_, index) => (
+      <div key={`vendor-inline-skeleton-${index}`} className="vendor-inline-item vendor-skeleton-card">
+        <div className="vendor-inline-item__main">
+          <AppSkeleton style={{ height: 14, maxWidth: 140, marginBottom: 8 }} />
+          <AppSkeleton style={{ height: 10, maxWidth: 100 }} />
+        </div>
+        <div className="vendor-inline-item__meta">
+          <AppSkeleton style={{ height: 10, width: 96, marginBottom: 8 }} />
+          <AppSkeleton style={{ height: 24, width: 88, borderRadius: 999 }} />
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+const VendorTableSkeleton = ({ columns = 4, rows = 5 }) => (
+  <tbody>
+    {Array.from({ length: rows }).map((_, rowIndex) => (
+      <tr key={`vendor-table-skeleton-${rowIndex}`}>
+        {Array.from({ length: columns }).map((_, colIndex) => (
+          <td key={`vendor-table-skeleton-cell-${rowIndex}-${colIndex}`}>
+            <AppSkeleton style={{ height: 12, maxWidth: colIndex === columns - 1 ? 120 : 150 }} />
+          </td>
+        ))}
+      </tr>
+    ))}
+  </tbody>
 );
 const VendorDashboard = () => {
   const approvedProductNames = [
@@ -138,6 +185,9 @@ const VendorDashboard = () => {
   const navigate = useNavigate();
   const vendorOrigin = resolveVendorOrigin(user);
   const hasPresetOrigin = Boolean(vendorOrigin);
+  const showVendorDashboardSkeleton = authChecking || (shipmentsLoading && shipments.length === 0 && !vendorOverview);
+  const showVendorShipmentsSkeleton = shipmentsLoading && shipments.length === 0;
+  const showVendorReportsSkeleton = reportsLoading && reportsData.length === 0;
 
   const openStatusModal = (type, title, message) => {
     setStatusModal({
@@ -1317,26 +1367,30 @@ const VendorDashboard = () => {
           {/* SECTION: Dashboard Overview */}
           {activeTab === 'dashboard' && (
             <div className="page-section active">
-              <div className="stats-grid vendor-stats-grid">
-                {primaryDashboardCards.map((card) => (
-                  <button key={card.key} type="button" className="stat-card stat-card-action stat-card-verbose" onClick={() => openPrimaryDashboardCard(card)}>
-                    <div className={`stat-icon icon-${card.tone}`}><i className={`fa-solid ${
-                      card.key === 'total'
-                        ? 'fa-box-open'
-                        : card.key === 'shipping'
-                          ? 'fa-truck-fast'
-                          : card.key === 'delivered'
-                            ? 'fa-check-double'
-                            : 'fa-qrcode'
-                    }`}></i></div>
-                    <div className="stat-info">
-                      <h3>{card.label}</h3>
-                      <div className="value">{card.value}</div>
-                      <p>{card.description}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
+              {showVendorDashboardSkeleton ? (
+                <VendorStatsSkeleton />
+              ) : (
+                <div className="stats-grid vendor-stats-grid">
+                  {primaryDashboardCards.map((card) => (
+                    <button key={card.key} type="button" className="stat-card stat-card-action stat-card-verbose" onClick={() => openPrimaryDashboardCard(card)}>
+                      <div className={`stat-icon icon-${card.tone}`}><i className={`fa-solid ${
+                        card.key === 'total'
+                          ? 'fa-box-open'
+                          : card.key === 'shipping'
+                            ? 'fa-truck-fast'
+                            : card.key === 'delivered'
+                              ? 'fa-check-double'
+                              : 'fa-qrcode'
+                      }`}></i></div>
+                      <div className="stat-info">
+                        <h3>{card.label}</h3>
+                        <div className="value">{card.value}</div>
+                        <p>{card.description}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
 
               <div className="overview-grid overview-grid-primary vendor-dashboard-grid">
                 <div className="card overview-card overview-card-feature vendor-hero-card">
@@ -1348,13 +1402,13 @@ const VendorDashboard = () => {
                     <button className="btn btn-outline" onClick={() => setActiveTab('create-shipment')}>Buat shipment</button>
                   </div>
                   <div className="overview-card-body vendor-hero-panel">
-                    {analyticsPending ? (
+                    {showVendorDashboardSkeleton || analyticsPending ? (
                       <>
                         <div className="vendor-hero-chip-row">
                           {Array.from({ length: 3 }).map((_, index) => (
                             <div key={index} className="vendor-hero-chip vendor-skeleton-card">
-                              <span className="vendor-skeleton-line short"></span>
-                              <strong className="vendor-skeleton-line value"></strong>
+                              <AppSkeleton style={{ height: 10, maxWidth: 88, marginBottom: 10 }} />
+                              <AppSkeleton style={{ height: 28, maxWidth: 72 }} />
                             </div>
                           ))}
                         </div>
@@ -1393,44 +1447,67 @@ const VendorDashboard = () => {
                     <button className="btn btn-outline" onClick={() => setActiveTab('shipments')}>Lihat daftar</button>
                   </div>
                   <div className="overview-card-body vendor-focus-body">
-                    <div className="signal-card-grid signal-card-grid-compact vendor-focus-grid">
-                      {operationalFocusCards.slice(0, 3).map((card) => (
-                        <button
-                          key={card.key}
-                          type="button"
-                          className={`signal-card signal-card-action tone-${card.tone}`}
-                          onClick={() => card.actionKey && openShipmentFilter(card.actionKey)}
-                        >
-                          <span>{card.label}</span>
-                          <strong>{card.value}</strong>
-                        </button>
-                      ))}
-                    </div>
-                    <div className="vendor-focus-strip">
-                      <div className="vendor-focus-strip__item">
-                        <span>QR siap diunduh</span>
-                        <strong>{qrReadiness.shipments_ready}</strong>
-                      </div>
-                      <div className="vendor-focus-strip__item">
-                        <span>Perlu tindak lanjut</span>
-                        <strong>{discrepancyAlert.pending_review}</strong>
-                      </div>
-                    </div>
-                    {criticalScheduleItems.length > 0 && (
-                      <div className="schedule-mini-list vendor-focus-list">
-                        {criticalScheduleItems.slice(0, 2).map((shipment) => (
-                          <div key={shipment.shipmentId} className="schedule-mini-item">
-                            <div>
-                              <strong>{shipment.shipmentNumber}</strong>
-                              <span>{shipment.origin}</span>
+                    {showVendorDashboardSkeleton ? (
+                      <>
+                        <div className="signal-card-grid signal-card-grid-compact vendor-focus-grid">
+                          {Array.from({ length: 3 }).map((_, index) => (
+                            <div key={`focus-skeleton-${index}`} className="signal-card vendor-skeleton-card vendor-skeleton-signal">
+                              <AppSkeleton style={{ height: 10, maxWidth: 96, marginBottom: 10 }} />
+                              <AppSkeleton style={{ height: 26, maxWidth: 64 }} />
                             </div>
-                            <div>
-                              <span>{formatCompactDateTime(shipment.dispatchAt)}</span>
-                              <strong className={`status-badge ${shipment.signal.tone}`}>{shipment.signal.label}</strong>
+                          ))}
+                        </div>
+                        <div className="vendor-focus-strip">
+                          {Array.from({ length: 2 }).map((_, index) => (
+                            <div key={`focus-strip-skeleton-${index}`} className="vendor-focus-strip__item vendor-skeleton-card">
+                              <AppSkeleton style={{ height: 10, maxWidth: 104, marginBottom: 10 }} />
+                              <AppSkeleton style={{ height: 24, maxWidth: 56 }} />
                             </div>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="signal-card-grid signal-card-grid-compact vendor-focus-grid">
+                          {operationalFocusCards.slice(0, 3).map((card) => (
+                            <button
+                              key={card.key}
+                              type="button"
+                              className={`signal-card signal-card-action tone-${card.tone}`}
+                              onClick={() => card.actionKey && openShipmentFilter(card.actionKey)}
+                            >
+                              <span>{card.label}</span>
+                              <strong>{card.value}</strong>
+                            </button>
+                          ))}
+                        </div>
+                        <div className="vendor-focus-strip">
+                          <div className="vendor-focus-strip__item">
+                            <span>QR siap diunduh</span>
+                            <strong>{qrReadiness.shipments_ready}</strong>
                           </div>
-                        ))}
-                      </div>
+                          <div className="vendor-focus-strip__item">
+                            <span>Perlu tindak lanjut</span>
+                            <strong>{discrepancyAlert.pending_review}</strong>
+                          </div>
+                        </div>
+                        {criticalScheduleItems.length > 0 && (
+                          <div className="schedule-mini-list vendor-focus-list">
+                            {criticalScheduleItems.slice(0, 2).map((shipment) => (
+                              <div key={shipment.shipmentId} className="schedule-mini-item">
+                                <div>
+                                  <strong>{shipment.shipmentNumber}</strong>
+                                  <span>{shipment.origin}</span>
+                                </div>
+                                <div>
+                                  <span>{formatCompactDateTime(shipment.dispatchAt)}</span>
+                                  <strong className={`status-badge ${shipment.signal.tone}`}>{shipment.signal.label}</strong>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -1446,7 +1523,9 @@ const VendorDashboard = () => {
                     <button className="btn btn-outline" onClick={() => openShipmentFilter('shipping')}>Lihat yang jalan</button>
                   </div>
                   <div className="overview-card-body vendor-list-card-body">
-                    {upcomingShipmentSchedule.length > 0 ? (
+                    {showVendorDashboardSkeleton ? (
+                      <VendorInlineListSkeleton count={3} />
+                    ) : upcomingShipmentSchedule.length > 0 ? (
                       <div className="vendor-inline-list">
                         {upcomingShipmentSchedule.map((shipment) => {
                           const signal = getScheduleSignal(shipment);
@@ -1484,8 +1563,8 @@ const VendorDashboard = () => {
                     <button className="btn btn-outline" onClick={() => setActiveTab('shipments')}>Buka daftar</button>
                   </div>
                   <div className="overview-card-body vendor-list-card-body">
-                    {shipmentsLoading ? (
-                      <div className="overview-empty-state">Memuat data pengiriman...</div>
+                    {showVendorDashboardSkeleton ? (
+                      <VendorInlineListSkeleton count={4} />
                     ) : recentShipmentActivity.length > 0 ? (
                       <div className="vendor-inline-list">
                         {recentShipmentActivity.slice(0, 4).map((activity) => (
@@ -1530,26 +1609,26 @@ const VendorDashboard = () => {
                       <th>Status</th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {shipmentsLoading ? (
-                      <tr>
-                        <td colSpan="4" style={{ textAlign: 'center' }}>Memuat data pengiriman...</td>
-                      </tr>
-                    ) : recentShipmentActivity.length > 0 ? (
-                      recentShipmentActivity.slice(0, 5).map((activity) => (
-                        <tr key={activity.shipmentId}>
-                          <td><strong>{activity.shipmentNumber}</strong></td>
-                          <td>{formatCompactDateTime(activity.timestamp)}</td>
-                          <td>{activity.origin}</td>
-                          <td>{getStatusBadge(activity.status)}</td>
+                  {showVendorDashboardSkeleton ? (
+                    <VendorTableSkeleton columns={4} rows={5} />
+                  ) : (
+                    <tbody>
+                      {recentShipmentActivity.length > 0 ? (
+                        recentShipmentActivity.slice(0, 5).map((activity) => (
+                          <tr key={activity.shipmentId}>
+                            <td><strong>{activity.shipmentNumber}</strong></td>
+                            <td>{formatCompactDateTime(activity.timestamp)}</td>
+                            <td>{activity.origin}</td>
+                            <td>{getStatusBadge(activity.status)}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan="4" style={{ textAlign: 'center' }}>Belum ada shipment yang bisa ditampilkan.</td>
                         </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan="4" style={{ textAlign: 'center' }}>Belum ada shipment yang bisa ditampilkan.</td>
-                      </tr>
-                    )}
-                  </tbody>
+                      )}
+                    </tbody>
+                  )}
                 </table>
               </div>
             </div>
@@ -1593,80 +1672,80 @@ const VendorDashboard = () => {
                       <th>Aksi</th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {shipmentsLoading ? (
-                      <tr>
-                        <td colSpan="5" style={{ textAlign: 'center' }}>Memuat shipment...</td>
-                      </tr>
-                    ) : filteredShipments.map(ship => (
-                      <tr key={ship.ID_outbound}>
-                        <td>
-                          <div className="vendor-shipment-row__main">
-                            <strong>{ship.no_pengiriman || `SHP-${ship.ID_outbound}`}</strong>
-                            <span>ID {ship.ID_outbound}</span>
-                          </div>
-                        </td>
-                        <td>{formatDateTime(ship.waktu_kirim)}</td>
-                        <td>{ship.lokasi_asal}</td>
-                        <td>{getStatusBadge(ship)}</td>
-                        <td>
-                          <div className="vendor-shipment-row__actions">
-                            {ship.status === 'draft' && (
-                              <AppButton
-                                type="button"
-                                className="vendor-row-btn"
-                                onClick={async () => {
-                                  try {
-                                    const session = await ensureVendorSession();
-                                    if (!session) {
-                                      return;
-                                    }
+                  {showVendorShipmentsSkeleton ? (
+                    <VendorTableSkeleton columns={5} rows={6} />
+                  ) : (
+                    <tbody>
+                      {filteredShipments.map(ship => (
+                        <tr key={ship.ID_outbound}>
+                          <td>
+                            <div className="vendor-shipment-row__main">
+                              <strong>{ship.no_pengiriman || `SHP-${ship.ID_outbound}`}</strong>
+                              <span>ID {ship.ID_outbound}</span>
+                            </div>
+                          </td>
+                          <td>{formatDateTime(ship.waktu_kirim)}</td>
+                          <td>{ship.lokasi_asal}</td>
+                          <td>{getStatusBadge(ship)}</td>
+                          <td>
+                            <div className="vendor-shipment-row__actions">
+                              {ship.status === 'draft' && (
+                                <AppButton
+                                  type="button"
+                                  className="vendor-row-btn"
+                                  onClick={async () => {
+                                    try {
+                                      const session = await ensureVendorSession();
+                                      if (!session) {
+                                        return;
+                                      }
 
-                                    await axios.post(`${API_BASE_URL}/api/outbound/${ship.ID_outbound}/submit`, {}, {
-                                      headers: session.headers
-                                    });
-                                    await Promise.all([
-                                      fetchShipments(session),
-                                      fetchVendorOverview(session),
-                                    ]);
-                                    handleViewQR(ship.ID_outbound);
-                                  } catch (error) {
-                                    console.error('Error submitting shipment:', error);
-                                    const message = error.response?.data?.message || 'Gagal submit shipment.';
-                                    openStatusModal('error', 'Shipment gagal dikirim', message);
-                                  }
-                                }}
-                              >
-                                Submit
-                              </AppButton>
-                            )}
-                            {canAccessQrForShipment(ship) && (
+                                      await axios.post(`${API_BASE_URL}/api/outbound/${ship.ID_outbound}/submit`, {}, {
+                                        headers: session.headers
+                                      });
+                                      await Promise.all([
+                                        fetchShipments(session),
+                                        fetchVendorOverview(session),
+                                      ]);
+                                      handleViewQR(ship.ID_outbound);
+                                    } catch (error) {
+                                      console.error('Error submitting shipment:', error);
+                                      const message = error.response?.data?.message || 'Gagal submit shipment.';
+                                      openStatusModal('error', 'Shipment gagal dikirim', message);
+                                    }
+                                  }}
+                                >
+                                  Submit
+                                </AppButton>
+                              )}
+                              {canAccessQrForShipment(ship) && (
+                                <AppButton
+                                  type="button"
+                                  className="vendor-row-btn"
+                                  onClick={() => handleViewQR(ship.ID_outbound)}
+                                >
+                                  QR
+                                </AppButton>
+                              )}
                               <AppButton
                                 type="button"
+                                variant="secondary"
                                 className="vendor-row-btn"
-                                onClick={() => handleViewQR(ship.ID_outbound)}
+                                onClick={() => handleViewShipmentDetails(ship)}
                               >
-                                QR
+                                Detail
                               </AppButton>
-                            )}
-                            <AppButton
-                              type="button"
-                              variant="secondary"
-                              className="vendor-row-btn"
-                              onClick={() => handleViewShipmentDetails(ship)}
-                            >
-                              Detail
-                            </AppButton>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {!shipmentsLoading && filteredShipments.length === 0 && (
-                      <tr>
-                        <td colSpan="5" style={{ textAlign: 'center' }}>Belum ada shipment untuk status ini.</td>
-                      </tr>
-                    )}
-                  </tbody>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {!shipmentsLoading && filteredShipments.length === 0 && (
+                        <tr>
+                          <td colSpan="5" style={{ textAlign: 'center' }}>Belum ada shipment untuk status ini.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  )}
                 </table>
               </div>
             </div>
@@ -1698,71 +1777,71 @@ const VendorDashboard = () => {
                         <th>Aksi</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {reportsLoading ? (
-                        <tr>
-                          <td colSpan="6" style={{ textAlign: 'center' }}>Memuat laporan R1...</td>
-                        </tr>
-                      ) : reportsData.map((report) => (
-                        <tr key={report.ID_dokumen}>
-                          <td>
-                            <div className="vendor-shipment-row__identity">
-                              <strong>{report.no_dokumen_r1}</strong>
-                              <span>DISC-{report.ID_discrepancy}</span>
-                            </div>
-                          </td>
-                          <td>{report.discrepancy?.shipment?.no_pengiriman || `SHP-${report.discrepancy?.shipment?.ID_outbound || '-'}`}</td>
-                          <td>{report.discrepancy?.item?.nama_barang || '-'}</td>
-                          <td>
-                              <span className={`status-badge ${
-                                report.status_dokumen === 'closing'
-                                  ? 'status-delivered'
-                                  : report.status_dokumen === 'diproses_vendor' || report.status_dokumen === 'barang_dikirim_ulang'
-                                    ? 'status-submitted'
-                                    : 'status-discrepancy'
-                              }`}>
-                                {reportStatusText[report.status_dokumen] || report.status_dokumen}
-                              </span>
-                          </td>
-                          <td>{formatDateTime(report.dibuat_at)}</td>
-                          <td>
-                            <div className="vendor-shipment-row__actions">
-                              <AppButton
-                                type="button"
-                                variant="secondary"
-                                className="vendor-row-btn"
-                                onClick={() => handleOpenReport(report.ID_dokumen)}
-                              >
-                                Detail
-                              </AppButton>
-                                {report.status_dokumen === 'dikirim_ke_vendor' && (
-                                  <AppButton
-                                    type="button"
-                                    className="vendor-row-btn"
-                                    onClick={() => handleUpdateReportStatus(report.ID_dokumen, 'diproses_vendor')}
-                                  >
-                                    Setujui & proses
-                                  </AppButton>
-                                )}
-                                {report.status_dokumen === 'diproses_vendor' && (
-                                  <AppButton
-                                    type="button"
-                                    className="vendor-row-btn"
-                                    onClick={() => handleUpdateReportStatus(report.ID_dokumen, 'barang_dikirim_ulang')}
-                                  >
-                                    Tandai sudah dikirim ulang
-                                  </AppButton>
-                                )}
+                    {showVendorReportsSkeleton ? (
+                      <VendorTableSkeleton columns={6} rows={5} />
+                    ) : (
+                      <tbody>
+                        {reportsData.map((report) => (
+                          <tr key={report.ID_dokumen}>
+                            <td>
+                              <div className="vendor-shipment-row__identity">
+                                <strong>{report.no_dokumen_r1}</strong>
+                                <span>DISC-{report.ID_discrepancy}</span>
                               </div>
                             </td>
+                            <td>{report.discrepancy?.shipment?.no_pengiriman || `SHP-${report.discrepancy?.shipment?.ID_outbound || '-'}`}</td>
+                            <td>{report.discrepancy?.item?.nama_barang || '-'}</td>
+                            <td>
+                                <span className={`status-badge ${
+                                  report.status_dokumen === 'closing'
+                                    ? 'status-delivered'
+                                    : report.status_dokumen === 'diproses_vendor' || report.status_dokumen === 'barang_dikirim_ulang'
+                                      ? 'status-submitted'
+                                      : 'status-discrepancy'
+                                }`}>
+                                  {reportStatusText[report.status_dokumen] || report.status_dokumen}
+                                </span>
+                            </td>
+                            <td>{formatDateTime(report.dibuat_at)}</td>
+                            <td>
+                              <div className="vendor-shipment-row__actions">
+                                <AppButton
+                                  type="button"
+                                  variant="secondary"
+                                  className="vendor-row-btn"
+                                  onClick={() => handleOpenReport(report.ID_dokumen)}
+                                >
+                                  Detail
+                                </AppButton>
+                                  {report.status_dokumen === 'dikirim_ke_vendor' && (
+                                    <AppButton
+                                      type="button"
+                                      className="vendor-row-btn"
+                                      onClick={() => handleUpdateReportStatus(report.ID_dokumen, 'diproses_vendor')}
+                                    >
+                                      Setujui & proses
+                                    </AppButton>
+                                  )}
+                                  {report.status_dokumen === 'diproses_vendor' && (
+                                    <AppButton
+                                      type="button"
+                                      className="vendor-row-btn"
+                                      onClick={() => handleUpdateReportStatus(report.ID_dokumen, 'barang_dikirim_ulang')}
+                                    >
+                                      Tandai sudah dikirim ulang
+                                    </AppButton>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                        ))}
+                        {!reportsLoading && reportsData.length === 0 && (
+                          <tr>
+                            <td colSpan="6" style={{ textAlign: 'center' }}>Belum ada dokumen tindak lanjut R1 untuk vendor ini.</td>
                           </tr>
-                      ))}
-                      {!reportsLoading && reportsData.length === 0 && (
-                        <tr>
-                          <td colSpan="6" style={{ textAlign: 'center' }}>Belum ada dokumen tindak lanjut R1 untuk vendor ini.</td>
-                        </tr>
-                      )}
-                    </tbody>
+                        )}
+                      </tbody>
+                    )}
                   </table>
                 </div>
               </div>

@@ -13,6 +13,7 @@ const LoginForm = ({
   password,
   showPassword,
   onTogglePassword,
+  transitioning,
 }) => (
   <section className="login-form-shell" aria-label="Form login">
     <div className="login-form-card">
@@ -38,6 +39,7 @@ const LoginForm = ({
           required
           type="email"
           value={email}
+          disabled={loading || transitioning}
         />
 
         <AppInput
@@ -48,6 +50,7 @@ const LoginForm = ({
               className="login-form__password-toggle"
               onClick={onTogglePassword}
               aria-label={showPassword ? 'Sembunyikan password' : 'Tampilkan password'}
+              disabled={loading || transitioning}
             >
               <i className={`fa-solid ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
             </button>
@@ -60,6 +63,7 @@ const LoginForm = ({
           required
           type={showPassword ? 'text' : 'password'}
           value={password}
+          disabled={loading || transitioning}
         />
 
         {error ? <div className="login-form__error">{error}</div> : null}

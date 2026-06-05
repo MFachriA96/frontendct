@@ -7,6 +7,7 @@ import AdminPanel from '../components/admin/AdminPanel';
 import AdminSidebar from '../components/admin/AdminSidebar';
 import AdminStatCard from '../components/admin/AdminStatCard';
 import AppButton from '../components/ui/AppButton';
+import AppSkeleton from '../components/ui/AppSkeleton';
 import ConfirmModal from '../components/ui/ConfirmModal';
 import StatusModal from '../components/ui/StatusModal';
 import { API_BASE_URL } from '../config/api';
@@ -125,6 +126,86 @@ const buildActivityFeed = (outboundData, discrepancyData, documentData, inboundD
     .slice(0, 24);
 };
 
+const AdminStatsSkeleton = ({ compact = false, count = 4 }) => (
+  <div className={`admin-stats-grid ${compact ? 'admin-stats-grid--compact' : ''}`}>
+    {Array.from({ length: count }).map((_, index) => (
+      <div key={`stat-skeleton-${index}`} className={`app-card admin-stat-card ${compact ? 'admin-stat-card--compact' : ''}`}>
+        <div className="admin-stat-card__top">
+          <AppSkeleton className="admin-skeleton admin-skeleton--label" />
+          <AppSkeleton className="admin-skeleton admin-skeleton--icon" />
+        </div>
+        <AppSkeleton className="admin-skeleton admin-skeleton--value" />
+        {!compact ? <AppSkeleton className="admin-skeleton admin-skeleton--meta" /> : null}
+      </div>
+    ))}
+  </div>
+);
+
+const AdminQuickActionsSkeleton = () => (
+  <AdminPanel
+    className="admin-panel--quick-actions"
+    title="Aksi cepat"
+    description="Menyiapkan shortcut akun yang paling sering dipakai."
+  >
+    <div className="admin-quick-actions admin-quick-actions--compact">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <div key={`quick-skeleton-${index}`} className="admin-quick-action admin-quick-action--compact">
+          <AppSkeleton className="admin-skeleton admin-skeleton--icon" />
+          <div>
+            <AppSkeleton className="admin-skeleton admin-skeleton--action-title" />
+            <AppSkeleton className="admin-skeleton admin-skeleton--action-subtitle" />
+          </div>
+        </div>
+      ))}
+    </div>
+  </AdminPanel>
+);
+
+const AdminTableSkeleton = ({ columns = 6, rows = 5 }) => (
+  <div className="admin-table-wrap">
+    <table className="admin-table">
+      <thead>
+        <tr>
+          {Array.from({ length: columns }).map((_, index) => (
+            <th key={`head-skeleton-${index}`}>
+              <AppSkeleton className="admin-skeleton admin-skeleton--table-head" />
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {Array.from({ length: rows }).map((_, rowIndex) => (
+          <tr key={`row-skeleton-${rowIndex}`}>
+            {Array.from({ length: columns }).map((_, colIndex) => (
+              <td key={`cell-skeleton-${rowIndex}-${colIndex}`}>
+                <AppSkeleton className="admin-skeleton admin-skeleton--table-cell" />
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+);
+
+const AdminActivitySkeleton = ({ count = 4 }) => (
+  <div className="admin-activity-list">
+    {Array.from({ length: count }).map((_, index) => (
+      <article key={`activity-skeleton-${index}`} className="admin-activity-item">
+        <div className="admin-activity-item__top">
+          <div className="admin-skeleton-stack">
+            <AppSkeleton className="admin-skeleton admin-skeleton--activity-title" />
+            <AppSkeleton className="admin-skeleton admin-skeleton--activity-time" />
+          </div>
+          <AppSkeleton className="admin-skeleton admin-skeleton--activity-chip" />
+        </div>
+        <AppSkeleton className="admin-skeleton admin-skeleton--activity-body" />
+        <AppSkeleton className="admin-skeleton admin-skeleton--activity-foot" />
+      </article>
+    ))}
+  </div>
+);
+
 const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState('users');
   const [user] = useState(() => {
@@ -135,6 +216,7 @@ const AdminDashboard = () => {
   const [savingUser, setSavingUser] = useState(false);
   const [savingVendor, setSavingVendor] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [primaryLoaded, setPrimaryLoaded] = useState(false);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityLoaded, setActivityLoaded] = useState(false);
   const [usersList, setUsersList] = useState([]);
@@ -203,6 +285,7 @@ const AdminDashboard = () => {
       console.error('Error fetching admin primary data:', error);
       setLoadError(error.response?.data?.message || 'Gagal memuat data inti admin.');
     } finally {
+      setPrimaryLoaded(true);
       if (withLoading) {
         setLoading(false);
       }
@@ -410,6 +493,9 @@ const AdminDashboard = () => {
     },
   }[activeTab];
 
+  const showPrimarySkeleton = loading && !primaryLoaded;
+  const showActivitySkeleton = (activityLoading && !activityLoaded) || (!activityLoaded && activeTab === 'activity');
+
   const headerActions = (
     <>
       {activeTab === 'users' ? (
@@ -456,153 +542,172 @@ const AdminDashboard = () => {
 
           {activeTab === 'users' ? (
             <>
-              <div className="admin-users-top-row">
-                <div className="admin-stats-grid admin-stats-grid--compact">
-                  <AdminStatCard compact icon="fa-solid fa-users" label="Total user" value={stats.totalUsers} />
-                  <AdminStatCard compact icon="fa-solid fa-qrcode" label="Petugas scan" value={stats.scannerCount} />
-                  <AdminStatCard compact icon="fa-solid fa-user-tie" label="Manager" value={stats.managerCount} />
-                  <AdminStatCard compact icon="fa-solid fa-truck" label="User vendor" value={stats.vendorUserCount} />
+              {showPrimarySkeleton ? (
+                <div className="admin-users-top-row">
+                  <AdminStatsSkeleton compact count={4} />
+                  <AdminQuickActionsSkeleton />
                 </div>
-
-                <AdminPanel
-                  className="admin-panel--quick-actions"
-                  title="Aksi cepat"
-                  description="Buat tipe akun yang paling sering dipakai lebih cepat."
-                >
-                  <div className="admin-quick-actions admin-quick-actions--compact">
-                    <button type="button" className="admin-quick-action admin-quick-action--compact" onClick={() => openUserModal('petugas')}>
-                      <i className="fa-solid fa-qrcode"></i>
-                      <div>
-                        <strong>Tambah petugas</strong>
-                        <span>Cakupan gudang tetap.</span>
-                      </div>
-                    </button>
-                    <button type="button" className="admin-quick-action admin-quick-action--compact" onClick={() => openUserModal('manager')}>
-                      <i className="fa-solid fa-chart-column"></i>
-                      <div>
-                        <strong>Tambah manager</strong>
-                        <span>Gudang default opsional.</span>
-                      </div>
-                    </button>
-                    <button type="button" className="admin-quick-action admin-quick-action--compact" onClick={() => openUserModal('vendor')}>
-                      <i className="fa-solid fa-building"></i>
-                      <div>
-                        <strong>Tambah user vendor</strong>
-                        <span>Hubungkan ke satu master vendor.</span>
-                      </div>
-                    </button>
+              ) : (
+                <div className="admin-users-top-row">
+                  <div className="admin-stats-grid admin-stats-grid--compact">
+                    <AdminStatCard compact icon="fa-solid fa-users" label="Total user" value={stats.totalUsers} />
+                    <AdminStatCard compact icon="fa-solid fa-qrcode" label="Petugas scan" value={stats.scannerCount} />
+                    <AdminStatCard compact icon="fa-solid fa-user-tie" label="Manager" value={stats.managerCount} />
+                    <AdminStatCard compact icon="fa-solid fa-truck" label="User vendor" value={stats.vendorUserCount} />
                   </div>
-                </AdminPanel>
-              </div>
+
+                  <AdminPanel
+                    className="admin-panel--quick-actions"
+                    title="Aksi cepat"
+                    description="Buat tipe akun yang paling sering dipakai lebih cepat."
+                  >
+                    <div className="admin-quick-actions admin-quick-actions--compact">
+                      <button type="button" className="admin-quick-action admin-quick-action--compact" onClick={() => openUserModal('petugas')}>
+                        <i className="fa-solid fa-qrcode"></i>
+                        <div>
+                          <strong>Tambah petugas</strong>
+                          <span>Cakupan gudang tetap.</span>
+                        </div>
+                      </button>
+                      <button type="button" className="admin-quick-action admin-quick-action--compact" onClick={() => openUserModal('manager')}>
+                        <i className="fa-solid fa-chart-column"></i>
+                        <div>
+                          <strong>Tambah manager</strong>
+                          <span>Gudang default opsional.</span>
+                        </div>
+                      </button>
+                      <button type="button" className="admin-quick-action admin-quick-action--compact" onClick={() => openUserModal('vendor')}>
+                        <i className="fa-solid fa-building"></i>
+                        <div>
+                          <strong>Tambah user vendor</strong>
+                          <span>Hubungkan ke satu master vendor.</span>
+                        </div>
+                      </button>
+                    </div>
+                  </AdminPanel>
+                </div>
+              )}
 
               <AdminPanel
                 title="Daftar user"
                 description="Data user dari backend, termasuk cakupan gudang dan vendor."
                 action={<button type="button" className="admin-link-action" onClick={() => fetchPrimaryData()}>{loading ? 'Memuat ulang...' : 'Muat ulang'}</button>}
               >
-                <div className="admin-table-wrap">
-                  <table className="admin-table">
-                    <thead>
-                      <tr>
-                        <th>Nama</th>
-                        <th>Email</th>
-                        <th>Role</th>
-                        <th>Cakupan</th>
-                        <th>Status</th>
-                        <th>Dibuat</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {usersList.map((item) => {
-                        const isVendor = item.role === 'vendor';
-                        const statusLabel = isVendor && item.vendor?.aktif === false ? 'Nonaktif' : 'Aktif';
-
-                        return (
-                          <tr key={item.ID_user}>
-                            <td>
-                              <div className="admin-person">
-                                <div className="admin-person__avatar">{item.nama?.charAt(0).toUpperCase()}</div>
-                                <div>
-                                  <strong>{item.nama}</strong>
-                                  <span>ID {item.ID_user}</span>
-                                </div>
-                              </div>
-                            </td>
-                            <td>{item.email}</td>
-                            <td><span className={`admin-role admin-role--${item.role || 'vendor'}`}>{roleLabels[item.role] || item.role}</span></td>
-                            <td>{getUserScopeLabel(item)}</td>
-                            <td><span className={`admin-status ${statusLabel === 'Aktif' ? 'is-active' : 'is-inactive'}`}>{statusLabel}</span></td>
-                            <td>{formatDateTime(item.created_at)}</td>
-                          </tr>
-                        );
-                      })}
-
-                      {usersList.length === 0 ? (
+                {showPrimarySkeleton ? (
+                  <AdminTableSkeleton columns={6} rows={5} />
+                ) : (
+                  <div className="admin-table-wrap">
+                    <table className="admin-table">
+                      <thead>
                         <tr>
-                          <td colSpan="6" className="admin-table__empty">Belum ada user dari backend.</td>
+                          <th>Nama</th>
+                          <th>Email</th>
+                          <th>Role</th>
+                          <th>Cakupan</th>
+                          <th>Status</th>
+                          <th>Dibuat</th>
                         </tr>
-                      ) : null}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {usersList.map((item) => {
+                          const isVendor = item.role === 'vendor';
+                          const statusLabel = isVendor && item.vendor?.aktif === false ? 'Nonaktif' : 'Aktif';
+
+                          return (
+                            <tr key={item.ID_user}>
+                              <td>
+                                <div className="admin-person">
+                                  <div className="admin-person__avatar">{item.nama?.charAt(0).toUpperCase()}</div>
+                                  <div>
+                                    <strong>{item.nama}</strong>
+                                    <span>ID {item.ID_user}</span>
+                                  </div>
+                                </div>
+                              </td>
+                              <td>{item.email}</td>
+                              <td><span className={`admin-role admin-role--${item.role || 'vendor'}`}>{roleLabels[item.role] || item.role}</span></td>
+                              <td>{getUserScopeLabel(item)}</td>
+                              <td><span className={`admin-status ${statusLabel === 'Aktif' ? 'is-active' : 'is-inactive'}`}>{statusLabel}</span></td>
+                              <td>{formatDateTime(item.created_at)}</td>
+                            </tr>
+                          );
+                        })}
+
+                        {usersList.length === 0 && primaryLoaded ? (
+                          <tr>
+                            <td colSpan="6" className="admin-table__empty">Belum ada user dari backend.</td>
+                          </tr>
+                        ) : null}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </AdminPanel>
             </>
           ) : null}
 
           {activeTab === 'vendors' ? (
             <>
-              <div className="admin-stats-grid">
-                <AdminStatCard icon="fa-solid fa-building" label="Master vendor" meta="Total vendor yang tersedia di data master" value={vendors.length} />
-                <AdminStatCard icon="fa-solid fa-circle-check" label="Vendor aktif" meta="Partner yang saat ini masih aktif" value={stats.activeVendorCount} />
-                <AdminStatCard icon="fa-solid fa-user-group" label="User vendor" meta="Akun eksternal yang sudah terhubung" value={stats.vendorUserCount} />
-                <AdminStatCard icon="fa-solid fa-warehouse" label="Gudang" meta="Referensi gudang yang tersedia" value={warehouses.length} />
-              </div>
+              {showPrimarySkeleton ? (
+                <AdminStatsSkeleton count={4} />
+              ) : (
+                <div className="admin-stats-grid">
+                  <AdminStatCard icon="fa-solid fa-building" label="Master vendor" meta="Total vendor yang tersedia di data master" value={vendors.length} />
+                  <AdminStatCard icon="fa-solid fa-circle-check" label="Vendor aktif" meta="Partner yang saat ini masih aktif" value={stats.activeVendorCount} />
+                  <AdminStatCard icon="fa-solid fa-user-group" label="User vendor" meta="Akun eksternal yang sudah terhubung" value={stats.vendorUserCount} />
+                  <AdminStatCard icon="fa-solid fa-warehouse" label="Gudang" meta="Referensi gudang yang tersedia" value={warehouses.length} />
+                </div>
+              )}
 
               <AdminPanel
                 title="Data master vendor"
                 description="Data vendor dipakai untuk ownership shipment dan akun user vendor."
                 action={<button type="button" className="admin-link-action" onClick={() => setIsAddVendorModalOpen(true)}>Tambah vendor</button>}
               >
-                <div className="admin-table-wrap">
-                  <table className="admin-table">
-                    <thead>
-                      <tr>
-                        <th>Nama vendor</th>
-                        <th>Email</th>
-                        <th>Lokasi</th>
-                        <th>Kontak</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {vendors.map((vendor) => (
-                        <tr key={vendor.ID_vendor}>
-                          <td>
-                            <div className="admin-person">
-                              <div className="admin-person__avatar admin-person__avatar--vendor">
-                                {vendor.nama_vendor?.charAt(0).toUpperCase()}
-                              </div>
-                              <div>
-                                <strong>{vendor.nama_vendor}</strong>
-                                <span>ID {vendor.ID_vendor}</span>
-                              </div>
-                            </div>
-                          </td>
-                          <td>{vendor.email_vendor || '-'}</td>
-                          <td>{vendor.lokasi_vendor || '-'}</td>
-                          <td>{vendor.kontak || '-'}</td>
-                          <td><span className={`admin-status ${vendor.aktif ? 'is-active' : 'is-inactive'}`}>{vendor.aktif ? 'Aktif' : 'Nonaktif'}</span></td>
-                        </tr>
-                      ))}
-
-                      {vendors.length === 0 ? (
+                {showPrimarySkeleton ? (
+                  <AdminTableSkeleton columns={5} rows={5} />
+                ) : (
+                  <div className="admin-table-wrap">
+                    <table className="admin-table">
+                      <thead>
                         <tr>
-                          <td colSpan="5" className="admin-table__empty">Belum ada vendor dari backend.</td>
+                          <th>Nama vendor</th>
+                          <th>Email</th>
+                          <th>Lokasi</th>
+                          <th>Kontak</th>
+                          <th>Status</th>
                         </tr>
-                      ) : null}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {vendors.map((vendor) => (
+                          <tr key={vendor.ID_vendor}>
+                            <td>
+                              <div className="admin-person">
+                                <div className="admin-person__avatar admin-person__avatar--vendor">
+                                  {vendor.nama_vendor?.charAt(0).toUpperCase()}
+                                </div>
+                                <div>
+                                  <strong>{vendor.nama_vendor}</strong>
+                                  <span>ID {vendor.ID_vendor}</span>
+                                </div>
+                              </div>
+                            </td>
+                            <td>{vendor.email_vendor || '-'}</td>
+                            <td>{vendor.lokasi_vendor || '-'}</td>
+                            <td>{vendor.kontak || '-'}</td>
+                            <td><span className={`admin-status ${vendor.aktif ? 'is-active' : 'is-inactive'}`}>{vendor.aktif ? 'Aktif' : 'Nonaktif'}</span></td>
+                          </tr>
+                        ))}
+
+                        {vendors.length === 0 && primaryLoaded ? (
+                          <tr>
+                            <td colSpan="5" className="admin-table__empty">Belum ada vendor dari backend.</td>
+                          </tr>
+                        ) : null}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </AdminPanel>
             </>
           ) : null}
@@ -613,29 +718,29 @@ const AdminDashboard = () => {
               description="Gabungan aktivitas dari outbound, inbound, selisih, dan dokumen R1."
               action={<button type="button" className="admin-link-action" onClick={() => fetchAllAdminData()}>{activityLoading ? 'Memuat ulang...' : 'Muat ulang semua'}</button>}
             >
-              <div className="admin-activity-list">
-                {activityLoading && !activityLoaded ? (
-                  <div className="admin-empty-block">Memuat aktivitas terbaru...</div>
-                ) : null}
-
-                {activityFeed.map((item) => (
-                  <article key={item.id} className="admin-activity-item">
-                    <div className="admin-activity-item__top">
-                      <div>
-                        <strong>{item.actor}</strong>
-                        <span>{formatDateTime(item.time)}</span>
+              {showActivitySkeleton ? (
+                <AdminActivitySkeleton />
+              ) : (
+                <div className="admin-activity-list">
+                  {activityFeed.map((item) => (
+                    <article key={item.id} className="admin-activity-item">
+                      <div className="admin-activity-item__top">
+                        <div>
+                          <strong>{item.actor}</strong>
+                          <span>{formatDateTime(item.time)}</span>
+                        </div>
+                        <span className={item.typeClass}>{item.type}</span>
                       </div>
-                      <span className={item.typeClass}>{item.type}</span>
-                    </div>
-                    <p>{item.detail}</p>
-                    <small>{item.source}</small>
-                  </article>
-                ))}
+                      <p>{item.detail}</p>
+                      <small>{item.source}</small>
+                    </article>
+                  ))}
 
-                {activityFeed.length === 0 && !activityLoading ? (
-                  <div className="admin-empty-block">Belum ada aktivitas terbaru dari backend.</div>
-                ) : null}
-              </div>
+                  {activityFeed.length === 0 && activityLoaded ? (
+                    <div className="admin-empty-block">Belum ada aktivitas terbaru dari backend.</div>
+                  ) : null}
+                </div>
+              )}
             </AdminPanel>
           ) : null}
         </div>
