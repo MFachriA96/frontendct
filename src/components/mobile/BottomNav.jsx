@@ -2,7 +2,7 @@ import React from 'react';
 import './mobile-ui.css';
 
 const BottomNav = ({ items, value, prominentValue }) => (
-  <nav className="mobile-bottom-nav" aria-label="Receiving navigation">
+  <nav className="mobile-bottom-nav" aria-label="Navigasi receiving">
     {items.map((item) => (
       <button
         key={item.value}

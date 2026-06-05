@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
@@ -22,13 +22,14 @@ import {
   buildScheduleRiskCards,
   buildActionQueueCards,
 } from '../utils/dashboardLogic';
-import AnalyticsTrendChart from '../components/AnalyticsTrendChart';
 import AppSidebar from '../components/navigation/AppSidebar';
 import AppButton from '../components/ui/AppButton';
 import BaseModalShell from '../components/ui/BaseModalShell';
 import ConfirmModal from '../components/ui/ConfirmModal';
 import StatusModal from '../components/ui/StatusModal';
 import './VendorDashboard.css';
+
+const LazyAnalyticsTrendChart = lazy(() => import('../components/AnalyticsTrendChart'));
 
 const vendorStatusText = {
   draft: 'Belum Dikirim',
@@ -38,6 +39,13 @@ const vendorStatusText = {
   verified: 'Sudah Dicek',
   delivered: 'Selesai',
   discrepancy: 'Perlu Tindak Lanjut',
+};
+
+const reportStatusText = {
+  draft: 'Draft',
+  dikirim_ke_vendor: 'Dikirim ke vendor',
+  diproses_vendor: 'Sedang diproses vendor',
+  closing: 'Selesai',
 };
 
 const resolveVendorOrigin = (vendorUser) => (
@@ -62,10 +70,12 @@ const VendorDashboard = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [shipmentStatusFilter, setShipmentStatusFilter] = useState('total');
   const [shipments, setShipments] = useState([]);
+  const [reportsData, setReportsData] = useState([]);
   const [vendorOverview, setVendorOverview] = useState(null);
   const [authChecking, setAuthChecking] = useState(true);
   const [shipmentsLoading, setShipmentsLoading] = useState(false);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [reportsLoading, setReportsLoading] = useState(false);
   const [vendorAnalytics, setVendorAnalytics] = useState(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState(null);
@@ -121,6 +131,8 @@ const VendorDashboard = () => {
   });
   const profileMenuRef = useRef(null);
   const notificationMenuRef = useRef(null);
+  const initializedRef = useRef(false);
+  const notificationsPollingRef = useRef(null);
 
   const navigate = useNavigate();
   const vendorOrigin = resolveVendorOrigin(user);
@@ -281,6 +293,29 @@ const VendorDashboard = () => {
     }
   };
 
+  const fetchReports = async (session) => {
+    try {
+      setReportsLoading(true);
+      const activeSession = session || await ensureVendorSession({ silent: true });
+      if (!activeSession) {
+        setReportsData([]);
+        return;
+      }
+
+      const response = await axios.get(`${API_BASE_URL}/api/dokumen-r1`, {
+        headers: activeSession.headers,
+      });
+      const resData = response.data?.data;
+      const reportsArray = Array.isArray(resData) ? resData : (resData?.data || []);
+      setReportsData(reportsArray);
+    } catch (error) {
+      console.error('Error fetching reports:', error);
+      setReportsData([]);
+    } finally {
+      setReportsLoading(false);
+    }
+  };
+
   const fetchWarehouses = async (session) => {
     try {
       const activeSession = session || await ensureVendorSession({ silent: true });
@@ -350,16 +385,11 @@ const VendorDashboard = () => {
       return;
     }
 
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_BASE_URL}/api/dokumen-r1/${notif.related_id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setReportModalData(response.data?.data || null);
-    } catch (error) {
-      console.error('Error loading vendor report:', error);
-      openStatusModal('error', 'Laporan gagal dimuat', 'Mismatch report belum bisa dibuka saat ini.');
-    }
+    await handleOpenReport(notif.related_id);
+  };
+
+  const refreshNotifications = async (session) => {
+    await fetchNotifications(session);
   };
 
   const handleNotificationPreviewClick = async (notif) => {
@@ -371,13 +401,18 @@ const VendorDashboard = () => {
     }
   };
 
-  async function fetchVendorAnalytics() {
-    const token = localStorage.getItem('token');
+  const fetchVendorAnalytics = async (session) => {
     setAnalyticsLoading(true);
     setAnalyticsError(null);
     try {
+      const activeSession = session || await ensureVendorSession({ silent: true });
+      if (!activeSession) {
+        setVendorAnalytics(null);
+        return;
+      }
+
       const res = await axios.get(`${API_BASE_URL}/api/dashboard/vendor-analytics`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: activeSession.headers,
       });
       setVendorAnalytics(normalizeAnalyticsResponse(res.data));
     } catch (err) {
@@ -385,10 +420,15 @@ const VendorDashboard = () => {
     } finally {
       setAnalyticsLoading(false);
     }
-  }
+  };
 
   useEffect(() => {
     const initializeDashboard = async () => {
+      if (initializedRef.current) {
+        return;
+      }
+
+      initializedRef.current = true;
       setAuthChecking(true);
       const session = await ensureVendorSession();
       if (!session) {
@@ -396,19 +436,59 @@ const VendorDashboard = () => {
         return;
       }
 
-      await Promise.all([
-        fetchShipments(session),
-        fetchVendorOverview(session),
-      ]);
       setAuthChecking(false);
-      void fetchVendorAnalytics();
-      void fetchNotifications(session);
-      void fetchProductOptions(session);
-      void fetchWarehouses(session);
+      void Promise.allSettled([
+        fetchShipments(session),
+        fetchReports(session),
+        fetchVendorOverview(session),
+        fetchVendorAnalytics(session),
+        fetchNotifications(session),
+        fetchProductOptions(session),
+        fetchWarehouses(session),
+      ]);
     };
 
     initializeDashboard();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const startNotificationsPolling = async () => {
+      const token = localStorage.getItem('token');
+      const session = token ? { headers: { Authorization: `Bearer ${token}` } } : null;
+      if (!session) {
+        return;
+      }
+
+      if (notificationsPollingRef.current) {
+        window.clearInterval(notificationsPollingRef.current);
+      }
+
+      notificationsPollingRef.current = window.setInterval(() => {
+        void refreshNotifications(session);
+      }, 45000);
+    };
+
+    const handleVisibilityRefresh = async () => {
+      if (document.visibilityState === 'visible') {
+        const token = localStorage.getItem('token');
+        const session = token ? { headers: { Authorization: `Bearer ${token}` } } : null;
+        if (session) {
+          void refreshNotifications(session);
+        }
+      }
+    };
+
+    void startNotificationsPolling();
+    document.addEventListener('visibilitychange', handleVisibilityRefresh);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityRefresh);
+      if (notificationsPollingRef.current) {
+        window.clearInterval(notificationsPollingRef.current);
+        notificationsPollingRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -507,7 +587,7 @@ const VendorDashboard = () => {
     }
 
     if (!estimasiTiba) {
-      nextErrors.estimasiTiba = 'Expected Arrival is required.';
+      nextErrors.estimasiTiba = 'Estimasi tiba wajib diisi.';
     }
 
     if (!targetWarehouseId) {
@@ -788,6 +868,57 @@ const VendorDashboard = () => {
     }
   };
 
+  const handleOpenReport = async (reportId) => {
+    try {
+      const session = await ensureVendorSession();
+      if (!session) {
+        return;
+      }
+
+      const response = await axios.get(`${API_BASE_URL}/api/dokumen-r1/${reportId}`, {
+        headers: session.headers,
+      });
+      setReportModalData(response.data?.data || null);
+    } catch (error) {
+      console.error('Error opening report:', error);
+      openStatusModal('error', 'Laporan gagal dimuat', 'Dokumen R1 belum bisa dibuka saat ini.');
+    }
+  };
+
+  const handleUpdateReportStatus = async (reportId, nextStatus) => {
+    try {
+      const session = await ensureVendorSession();
+      if (!session) {
+        return;
+      }
+
+      const response = await axios.put(`${API_BASE_URL}/api/dokumen-r1/${reportId}/status`, {
+        status_dokumen: nextStatus,
+      }, {
+        headers: session.headers,
+      });
+
+      const updatedReport = response.data?.data || null;
+      if (updatedReport) {
+        setReportModalData(updatedReport);
+      }
+
+      await Promise.all([
+        fetchReports(session),
+        fetchNotifications(session),
+      ]);
+
+      const successMessage = nextStatus === 'diproses_vendor'
+        ? 'Dokumen R1 sudah ditandai sedang diproses. Manager akan menerima notifikasi.'
+        : 'Status dokumen berhasil diperbarui.';
+      openStatusModal('success', 'Status laporan diperbarui', successMessage);
+    } catch (error) {
+      console.error('Error updating report status:', error);
+      const message = error.response?.data?.message || 'Status dokumen belum bisa diperbarui saat ini.';
+      openStatusModal('error', 'Status laporan gagal diperbarui', message);
+    }
+  };
+
   const openReportPdf = (report) => {
     if (!report) return;
 
@@ -1001,7 +1132,7 @@ const VendorDashboard = () => {
         <main className="main-wrapper" style={{ justifyContent: 'center', alignItems: 'center' }}>
           <div style={{ textAlign: 'center', color: 'var(--text-dark)' }}>
             <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '2rem', marginBottom: '16px' }}></i>
-            <p>Verifying vendor session...</p>
+            <p>Memeriksa sesi vendor...</p>
           </div>
         </main>
       </div>
@@ -1016,9 +1147,10 @@ const VendorDashboard = () => {
         brandMeta="Vendor"
         items={[
           { value: 'dashboard', label: 'Dashboard', icon: 'fa-solid fa-chart-pie' },
-          { value: 'shipments', label: 'Outbound shipments', icon: 'fa-solid fa-truck-fast' },
-          { value: 'create-shipment', label: 'Create shipment', icon: 'fa-solid fa-plus-circle' },
-          { value: 'notifications', label: 'Notifications', icon: 'fa-regular fa-bell' },
+          { value: 'shipments', label: 'Shipment outbound', icon: 'fa-solid fa-truck-fast' },
+          { value: 'create-shipment', label: 'Buat shipment', icon: 'fa-solid fa-plus-circle' },
+          { value: 'reports', label: 'Laporan R1', icon: 'fa-regular fa-file-lines' },
+          { value: 'notifications', label: 'Notifikasi', icon: 'fa-regular fa-bell' },
         ]}
         onSelect={setActiveTab}
         onSignOut={() => setLogoutConfirmOpen(true)}
@@ -1030,11 +1162,12 @@ const VendorDashboard = () => {
         {/* Header */}
         <header className="header">
           <h1 className="page-title">
-            {activeTab === 'dashboard' && 'Vendor Dashboard'}
-            {activeTab === 'shipments' && 'Outbound Shipments'}
-            {activeTab === 'create-shipment' && 'Create Shipment'}
-            {activeTab === 'notifications' && 'Notifications'}
-            {activeTab === 'settings' && 'Settings'}
+            {activeTab === 'dashboard' && 'Dashboard vendor'}
+            {activeTab === 'shipments' && 'Shipment outbound'}
+            {activeTab === 'create-shipment' && 'Buat shipment'}
+            {activeTab === 'reports' && 'Laporan R1'}
+            {activeTab === 'notifications' && 'Notifikasi'}
+            {activeTab === 'settings' && 'Pengaturan'}
           </h1>
           
           <div className="header-actions">
@@ -1056,7 +1189,7 @@ const VendorDashboard = () => {
               <div className="notification-dropdown" role="menu" aria-hidden={!notificationMenuOpen}>
                 <div className="notification-dropdown-header">
                   <div>
-                    <strong>Notifications</strong>
+                    <strong>Notifikasi</strong>
                     <span>{unreadCount > 0 ? `${unreadCount} belum dibaca` : 'Semua sudah dibaca'}</span>
                   </div>
                   {unreadCount > 0 && (
@@ -1068,14 +1201,14 @@ const VendorDashboard = () => {
                         setNotificationMenuOpen(false);
                       }}
                     >
-                      Mark all
+                      Tandai semua
                     </button>
                   )}
                 </div>
 
                 <div className="notification-preview-list">
                   {notificationsLoading ? (
-                    <div className="notification-preview-empty">Loading notifications...</div>
+                    <div className="notification-preview-empty">Memuat notifikasi...</div>
                   ) : notificationPreviewItems.length === 0 ? (
                     <div className="notification-preview-empty">Belum ada notifikasi baru.</div>
                   ) : (
@@ -1111,7 +1244,7 @@ const VendorDashboard = () => {
                     setNotificationMenuOpen(false);
                   }}
                 >
-                  Open Notifications
+                  Buka notifikasi
                 </button>
               </div>
             </div>
@@ -1146,7 +1279,7 @@ const VendorDashboard = () => {
                   role="menuitem"
                 >
                   <i className="fa-solid fa-gear"></i>
-                  <span>Settings</span>
+                  <span>Pengaturan</span>
                 </button>
                 <button
                   type="button"
@@ -1158,7 +1291,7 @@ const VendorDashboard = () => {
                   role="menuitem"
                 >
                   <i className="fa-regular fa-bell"></i>
-                  <span>Notifications</span>
+                  <span>Notifikasi</span>
                   {unreadCount > 0 && <strong>{unreadCount}</strong>}
                 </button>
                 <button
@@ -1168,7 +1301,7 @@ const VendorDashboard = () => {
                   role="menuitem"
                 >
                   <i className="fa-solid fa-arrow-right-from-bracket"></i>
-                  <span>Logout</span>
+                  <span>Keluar</span>
                 </button>
               </div>
             </div>
@@ -1236,7 +1369,9 @@ const VendorDashboard = () => {
                         </div>
                         {analyticsPreviewAvailable && analyticsTrendData.labels.length > 0 ? (
                           <div className="vendor-hero-chart-frame">
-                            <AnalyticsTrendChart data={analyticsTrendData} theme="light" />
+                            <Suspense fallback={<div className="overview-empty-state">Memuat grafik...</div>}>
+                              <LazyAnalyticsTrendChart data={analyticsTrendData} theme="light" />
+                            </Suspense>
                           </div>
                         ) : (
                           <div className="overview-empty-state">Belum ada cukup data untuk membaca pola pengiriman.</div>
@@ -1494,7 +1629,8 @@ const VendorDashboard = () => {
                                     handleViewQR(ship.ID_outbound);
                                   } catch (error) {
                                     console.error('Error submitting shipment:', error);
-                                    alert('Error submitting shipment');
+                                    const message = error.response?.data?.message || 'Gagal submit shipment.';
+                                    openStatusModal('error', 'Shipment gagal dikirim', message);
                                   }
                                 }}
                               >
@@ -1529,6 +1665,94 @@ const VendorDashboard = () => {
                     )}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'reports' && (
+            <div className="page-section active">
+              <div className="card vendor-shipments-card">
+                <div className="card-header vendor-shipments-card__header">
+                  <div>
+                    <h2 className="card-title">Laporan R1</h2>
+                    <p className="vendor-create-shipment__subtitle">Pantau tindak lanjut dokumen selisih yang dikirim manager ke vendor.</p>
+                  </div>
+                  <div className="vendor-shipments-toolbar__summary">
+                    <strong>{reportsData.length}</strong>
+                    <span>dokumen</span>
+                  </div>
+                </div>
+
+                <div className="table-responsive">
+                  <table className="vendor-shipments-table">
+                    <thead>
+                      <tr>
+                        <th>Nomor dokumen</th>
+                        <th>Shipment</th>
+                        <th>Produk</th>
+                        <th>Status</th>
+                        <th>Dibuat pada</th>
+                        <th>Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reportsLoading ? (
+                        <tr>
+                          <td colSpan="6" style={{ textAlign: 'center' }}>Memuat laporan R1...</td>
+                        </tr>
+                      ) : reportsData.map((report) => (
+                        <tr key={report.ID_dokumen}>
+                          <td>
+                            <div className="vendor-shipment-row__identity">
+                              <strong>{report.no_dokumen_r1}</strong>
+                              <span>DISC-{report.ID_discrepancy}</span>
+                            </div>
+                          </td>
+                          <td>{report.discrepancy?.shipment?.no_pengiriman || `SHP-${report.discrepancy?.shipment?.ID_outbound || '-'}`}</td>
+                          <td>{report.discrepancy?.item?.nama_barang || '-'}</td>
+                          <td>
+                            <span className={`status-badge ${
+                              report.status_dokumen === 'closing'
+                                ? 'status-delivered'
+                                : report.status_dokumen === 'diproses_vendor'
+                                  ? 'status-submitted'
+                                  : 'status-discrepancy'
+                            }`}>
+                              {reportStatusText[report.status_dokumen] || report.status_dokumen}
+                            </span>
+                          </td>
+                          <td>{formatDateTime(report.dibuat_at)}</td>
+                          <td>
+                            <div className="vendor-shipment-row__actions">
+                              <AppButton
+                                type="button"
+                                variant="secondary"
+                                className="vendor-row-btn"
+                                onClick={() => handleOpenReport(report.ID_dokumen)}
+                              >
+                                Detail
+                              </AppButton>
+                              {report.status_dokumen === 'dikirim_ke_vendor' && (
+                                <AppButton
+                                  type="button"
+                                  className="vendor-row-btn"
+                                  onClick={() => handleUpdateReportStatus(report.ID_dokumen, 'diproses_vendor')}
+                                >
+                                  Tandai diproses
+                                </AppButton>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {!reportsLoading && reportsData.length === 0 && (
+                        <tr>
+                          <td colSpan="6" style={{ textAlign: 'center' }}>Belum ada dokumen R1 untuk vendor ini.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
@@ -1732,10 +1956,10 @@ const VendorDashboard = () => {
             <div className="page-section active">
               <div className="card">
                 <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <h2 className="card-title">Notifications</h2>
+                  <h2 className="card-title">Notifikasi</h2>
                   {unreadCount > 0 && (
                     <button className="btn btn-outline" onClick={handleMarkAllAsRead} style={{ padding: '6px 12px', fontSize: '0.85rem' }}>
-                      Mark all as read
+                      Tandai semua sudah dibaca
                     </button>
                   )}
                 </div>
@@ -1743,12 +1967,12 @@ const VendorDashboard = () => {
                   {notificationsLoading ? (
                     <div style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b' }}>
                       <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '2rem', marginBottom: '16px' }}></i>
-                      <p>Loading notifications...</p>
+                      <p>Memuat notifikasi...</p>
                     </div>
                   ) : notifications.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b' }}>
                       <i className="fa-regular fa-bell-slash" style={{ fontSize: '3rem', marginBottom: '16px', opacity: 0.5 }}></i>
-                      <p>You have no notifications at the moment.</p>
+                      <p>Saat ini belum ada notifikasi.</p>
                     </div>
                   ) : (
                     notifications.map(notif => {
@@ -1783,7 +2007,7 @@ const VendorDashboard = () => {
                           <p style={{ margin: 0, color: '#475569', fontSize: '0.9rem' }}>{notif.pesan}</p>
                           {notif.related_type === 'dokumen_r1' && (
                             <span style={{ display: 'inline-flex', marginTop: '8px', fontSize: '0.78rem', color: '#b91c1c', fontWeight: 700 }}>
-                              Click to open mismatch PDF report
+                              Klik untuk membuka PDF laporan selisih
                             </span>
                           )}
                           <span style={{ display: 'block', marginTop: '8px', fontSize: '0.75rem', color: '#94a3b8' }}>
@@ -1807,14 +2031,14 @@ const VendorDashboard = () => {
               <div className="settings-grid">
                 <div className="card settings-card">
                   <div className="card-header">
-                    <h2 className="card-title">Account Profile</h2>
-                    <span className="status-badge status-submitted">Vendor Account</span>
+                    <h2 className="card-title">Profil akun</h2>
+                    <span className="status-badge status-submitted">Akun vendor</span>
                   </div>
                   <div className="settings-profile">
                     <div className="settings-avatar">{user ? user.nama?.charAt(0).toUpperCase() : 'V'}</div>
                     <div>
                       <h3>{user?.nama || 'Vendor Partner'}</h3>
-                      <p>{user?.email || 'No email available'}</p>
+                      <p>{user?.email || 'Email belum tersedia'}</p>
                     </div>
                   </div>
                   <div className="settings-detail-list">
@@ -1823,39 +2047,39 @@ const VendorDashboard = () => {
                       <strong>{user?.role || 'vendor'}</strong>
                     </div>
                     <div>
-                      <span>Linked Vendor ID</span>
+                      <span>ID vendor terkait</span>
                       <strong>{user?.ID_vendor || '-'}</strong>
                     </div>
                     <div>
-                      <span>Session Status</span>
-                      <strong>Active</strong>
+                      <span>Status sesi</span>
+                      <strong>Aktif</strong>
                     </div>
                   </div>
                 </div>
 
                 <div className="card settings-card">
                   <div className="card-header">
-                    <h2 className="card-title">Notification Preferences</h2>
+                    <h2 className="card-title">Preferensi notifikasi</h2>
                   </div>
                   <div className="settings-toggles">
                     <label className="settings-toggle-row">
                       <div>
-                        <strong>Discrepancy Alerts</strong>
-                        <span>Highlight mismatch and R1 report notifications in red.</span>
+                        <strong>Alert selisih</strong>
+                        <span>Tandai mismatch dan laporan R1 dengan warna merah.</span>
                       </div>
                       <input type="checkbox" checked={settingsPrefs.discrepancyAlerts} onChange={() => handleSettingsPreferenceChange('discrepancyAlerts')} />
                     </label>
                     <label className="settings-toggle-row">
                       <div>
-                        <strong>Report Alerts</strong>
-                        <span>Show vendor report notifications when a manager sends an R1 document.</span>
+                        <strong>Alert laporan</strong>
+                        <span>Tampilkan notifikasi saat manager mengirim dokumen R1.</span>
                       </div>
                       <input type="checkbox" checked={settingsPrefs.reportAlerts} onChange={() => handleSettingsPreferenceChange('reportAlerts')} />
                     </label>
                     <label className="settings-toggle-row">
                       <div>
-                        <strong>QR Download Reminder</strong>
-                        <span>Keep QR download guidance visible in the QR modal workflow.</span>
+                        <strong>Pengingat unduh QR</strong>
+                        <span>Biarkan panduan unduh QR tetap terlihat di alur modal QR.</span>
                       </div>
                       <input type="checkbox" checked={settingsPrefs.qrDownloadHint} onChange={() => handleSettingsPreferenceChange('qrDownloadHint')} />
                     </label>
@@ -1864,28 +2088,28 @@ const VendorDashboard = () => {
 
                 <div className="card settings-card">
                   <div className="card-header">
-                    <h2 className="card-title">Workflow Shortcuts</h2>
+                    <h2 className="card-title">Shortcut workflow</h2>
                   </div>
                   <div className="settings-actions-list">
                     <button className="settings-action-btn" onClick={() => setActiveTab('create-shipment')}>
                       <i className="fa-solid fa-plus"></i>
                       <div>
-                        <strong>Create New Shipment</strong>
-                        <span>Prepare outbound details and generate QR after submit.</span>
+                        <strong>Buat shipment baru</strong>
+                        <span>Siapkan detail outbound dan buat QR setelah submit.</span>
                       </div>
                     </button>
                     <button className="settings-action-btn" onClick={() => setActiveTab('shipments')}>
                       <i className="fa-solid fa-truck-fast"></i>
                       <div>
-                        <strong>Review Outbound Shipments</strong>
-                        <span>Open shipment details, QR codes, and status history.</span>
+                        <strong>Lihat shipment outbound</strong>
+                        <span>Buka detail shipment, QR, dan riwayat status.</span>
                       </div>
                     </button>
                     <button className="settings-action-btn" onClick={() => setActiveTab('notifications')}>
                       <i className="fa-regular fa-bell"></i>
                       <div>
-                        <strong>Open Notifications</strong>
-                        <span>Review R1 reports, discrepancies, and shipment updates.</span>
+                        <strong>Buka notifikasi</strong>
+                        <span>Lihat laporan R1, selisih, dan update shipment.</span>
                       </div>
                     </button>
                   </div>
@@ -1893,15 +2117,15 @@ const VendorDashboard = () => {
 
                 <div className="card settings-card">
                   <div className="card-header">
-                    <h2 className="card-title">Security</h2>
+                    <h2 className="card-title">Keamanan</h2>
                   </div>
                   <div className="settings-security">
                     <div>
-                      <strong>Current session</strong>
-                      <span>Use logout when you are finished on a shared device.</span>
+                      <strong>Sesi saat ini</strong>
+                      <span>Gunakan logout kalau selesai memakai perangkat bersama.</span>
                     </div>
                     <button className="btn btn-outline settings-logout-btn" onClick={() => setLogoutConfirmOpen(true)}>
-                      <i className="fa-solid fa-arrow-right-from-bracket"></i> Logout
+                      <i className="fa-solid fa-arrow-right-from-bracket"></i> Keluar
                     </button>
                   </div>
                 </div>
@@ -1941,7 +2165,7 @@ const VendorDashboard = () => {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', marginBottom: '20px' }}>
               <div>
-                <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-dark)', marginBottom: '4px' }}>Mismatch Report</h2>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-dark)', marginBottom: '4px' }}>Laporan selisih</h2>
                 <p style={{ margin: 0, color: '#64748b' }}>{reportModalData.no_dokumen_r1}</p>
               </div>
               <button onClick={() => setReportModalData(null)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#64748b' }}>&times;</button>
@@ -1953,7 +2177,7 @@ const VendorDashboard = () => {
                   <span>Shipment</span>
                   <strong>{reportModalData.discrepancy?.shipment?.no_pengiriman || `SHP-${reportModalData.discrepancy?.shipment?.ID_outbound || '-'}`}</strong>
                 </div>
-                <span className="status-badge status-discrepancy">Discrepancy</span>
+                <span className="status-badge status-discrepancy">Selisih</span>
               </div>
 
               <div className="shipment-detail-grid">
@@ -1962,48 +2186,53 @@ const VendorDashboard = () => {
                   <strong>{reportModalData.discrepancy?.shipment?.vendor?.nama_vendor || '-'}</strong>
                 </div>
                 <div>
-                  <span className="detail-label">Origin</span>
+                  <span className="detail-label">Asal</span>
                   <strong>{reportModalData.discrepancy?.shipment?.lokasi_asal || '-'}</strong>
                 </div>
                 <div>
-                  <span className="detail-label">Dispatch Time</span>
+                  <span className="detail-label">Waktu kirim</span>
                   <strong>{formatDateTime(reportModalData.discrepancy?.shipment?.waktu_kirim)}</strong>
                 </div>
                 <div>
-                  <span className="detail-label">Document Status</span>
-                  <strong>{(reportModalData.status_dokumen || '-').replace(/_/g, ' ').toUpperCase()}</strong>
+                  <span className="detail-label">Status dokumen</span>
+                  <strong>{reportStatusText[reportModalData.status_dokumen] || reportModalData.status_dokumen || '-'}</strong>
                 </div>
               </div>
 
               <div className="vendor-report-mismatch">
                 <div>
-                  <span>Product</span>
+                  <span>Produk</span>
                   <strong>{reportModalData.discrepancy?.item?.nama_barang || '-'}</strong>
                 </div>
                 <div>
-                  <span>Expected</span>
+                  <span>Ekspektasi</span>
                   <strong>{reportModalData.discrepancy?.quantity_outbound ?? '-'}</strong>
                 </div>
                 <div>
-                  <span>Received Accepted</span>
+                  <span>Diterima</span>
                   <strong>{reportModalData.discrepancy?.quantity_inbound ?? '-'}</strong>
                 </div>
                 <div>
-                  <span>Difference</span>
+                  <span>Selisih</span>
                   <strong style={{ color: '#dc2626' }}>{reportModalData.discrepancy?.selisih ?? '-'}</strong>
                 </div>
               </div>
 
               <div className="vendor-report-notes">
-                <span>Report Notes</span>
+                <span>Catatan laporan</span>
                 <p>{reportModalData.keterangan || '-'}</p>
               </div>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '20px' }}>
-              <button className="btn btn-outline" onClick={() => setReportModalData(null)}>Close</button>
+              {reportModalData.status_dokumen === 'dikirim_ke_vendor' && (
+                <button className="btn btn-primary" onClick={() => handleUpdateReportStatus(reportModalData.ID_dokumen, 'diproses_vendor')}>
+                  Tandai sedang diproses
+                </button>
+              )}
+              <button className="btn btn-outline" onClick={() => setReportModalData(null)}>Tutup</button>
               <button className="btn btn-primary" onClick={() => openReportPdf(reportModalData)}>
-                <i className="fa-solid fa-file-pdf"></i> Open PDF
+                <i className="fa-solid fa-file-pdf"></i> Buka PDF
               </button>
             </div>
           </div>
@@ -2105,7 +2334,7 @@ const VendorDashboard = () => {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-dark)' }}>
-                Shipment Details {selectedShipmentDetails?.ID_outbound ? `#${selectedShipmentDetails.ID_outbound}` : ''}
+                Detail shipment {selectedShipmentDetails?.ID_outbound ? `#${selectedShipmentDetails.ID_outbound}` : ''}
               </h2>
               <button onClick={() => setShowDetailsModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#64748b' }}>&times;</button>
             </div>
@@ -2113,21 +2342,21 @@ const VendorDashboard = () => {
             {detailsLoading ? (
               <div style={{ textAlign: 'center', padding: '32px 20px', color: '#64748b' }}>
                 <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '2rem', marginBottom: '16px' }}></i>
-                <p>Loading shipment details...</p>
+                <p>Memuat detail shipment...</p>
               </div>
             ) : selectedShipmentDetails && (
               <>
                 <div className="shipment-detail-grid">
                   <div>
-                    <span className="detail-label">Origin Location</span>
+                    <span className="detail-label">Lokasi asal</span>
                     <strong>{selectedShipmentDetails.lokasi_asal || '-'}</strong>
                   </div>
                   <div>
-                    <span className="detail-label">Shipping Time</span>
+                    <span className="detail-label">Waktu kirim</span>
                     <strong>{formatDateTime(selectedShipmentDetails.waktu_kirim)}</strong>
                   </div>
                   <div>
-                    <span className="detail-label">Estimated Arrival</span>
+                    <span className="detail-label">Estimasi tiba</span>
                     <strong>{formatDateTime(selectedShipmentDetails.estimasi_tiba)}</strong>
                   </div>
                   <div>
@@ -2135,24 +2364,24 @@ const VendorDashboard = () => {
                     {getStatusBadge(selectedShipmentDetails)}
                   </div>
                   <div>
-                    <span className="detail-label">Shipment Number</span>
+                    <span className="detail-label">Nomor shipment</span>
                     <strong>{selectedShipmentDetails.no_pengiriman || '-'}</strong>
                   </div>
                   <div>
-                    <span className="detail-label">Created At</span>
+                    <span className="detail-label">Dibuat pada</span>
                     <strong>{formatDateTime(selectedShipmentDetails.created_at)}</strong>
                   </div>
                 </div>
 
                 <div className="shipment-items-table">
-                  <h3>Shipment Items</h3>
+                  <h3>Item shipment</h3>
                   <table>
                     <thead>
                       <tr>
-                        <th>Product Name</th>
-                        <th>Total Quantity</th>
-                        <th>Quantity Per Box</th>
-                        <th>Boxes</th>
+                        <th>Nama produk</th>
+                        <th>Total quantity</th>
+                        <th>Quantity per box</th>
+                        <th>Box</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2166,7 +2395,7 @@ const VendorDashboard = () => {
                       ))}
                       {(!selectedShipmentDetails.details || selectedShipmentDetails.details.length === 0) && (
                         <tr>
-                          <td colSpan="4" style={{ textAlign: 'center' }}>No item details available.</td>
+                          <td colSpan="4" style={{ textAlign: 'center' }}>Belum ada detail item.</td>
                         </tr>
                       )}
                     </tbody>

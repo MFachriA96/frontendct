@@ -14,11 +14,11 @@ const LoginForm = ({
   showPassword,
   onTogglePassword,
 }) => (
-  <section className="login-form-shell" aria-label="Sign in form">
+  <section className="login-form-shell" aria-label="Form login">
     <div className="login-form-card">
       <div className="login-form-card__intro">
-        <h2>Sign in</h2>
-        <p className="login-form-card__subtitle">Use the account assigned by admin.</p>
+        <h2>Masuk</h2>
+        <p className="login-form-card__subtitle">Gunakan akun yang sudah dibuat admin.</p>
       </div>
 
       <form className="login-form" onSubmit={onSubmit}>
@@ -41,7 +41,7 @@ const LoginForm = ({
               type="button"
               className="login-form__password-toggle"
               onClick={onTogglePassword}
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              aria-label={showPassword ? 'Sembunyikan password' : 'Tampilkan password'}
             >
               <i className={`fa-solid ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
             </button>
@@ -50,7 +50,7 @@ const LoginForm = ({
           id="login-password"
           label="Password"
           onChange={(event) => onPasswordChange(event.target.value)}
-          placeholder="Enter your password"
+          placeholder="Masukkan password"
           required
           type={showPassword ? 'text' : 'password'}
           value={password}
@@ -58,13 +58,8 @@ const LoginForm = ({
 
         {error ? <div className="login-form__error">{error}</div> : null}
 
-        <label className="login-form__remember">
-          <input type="checkbox" />
-          <span>Keep me signed in</span>
-        </label>
-
         <AppButton className="login-form__submit" disabled={loading} type="submit">
-          {loading ? 'Signing in...' : 'Sign in'}
+          {loading ? 'Masuk...' : 'Masuk'}
         </AppButton>
       </form>
     </div>

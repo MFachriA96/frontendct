@@ -9,7 +9,7 @@ const iconByType = {
 };
 
 const StatusModal = ({
-  actionLabel = 'Close',
+  actionLabel = 'Tutup',
   message,
   onClose,
   open,

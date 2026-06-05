@@ -41,7 +41,7 @@ const Login = () => {
       const user = response.data?.data?.user;
 
       if (!token || !user) {
-        throw new Error('Unexpected login response from server.');
+        throw new Error('Respons login dari server tidak sesuai.');
       }
 
       localStorage.setItem('token', token);
@@ -69,13 +69,13 @@ const Login = () => {
         return;
       }
 
-      alert(`Logged in as ${user.role || 'unknown role'}`);
+      setError(`Role ${user.role || 'akun ini'} belum punya tujuan halaman.`);
     } catch (err) {
       const apiMessage = err.response?.data?.message;
       const validationErrors = err.response?.data?.errors;
       const firstValidationError = validationErrors ? Object.values(validationErrors).flat()[0] : null;
 
-      setError(firstValidationError || apiMessage || err.message || 'Login failed. Please check your credentials.');
+      setError(firstValidationError || apiMessage || err.message || 'Login gagal. Cek lagi email dan password kamu.');
     } finally {
       setLoading(false);
     }

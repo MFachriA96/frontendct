@@ -10,7 +10,7 @@ const AppSidebar = ({
   onSelect,
   onSignOut,
   sections = [],
-  signOutLabel = 'Sign out',
+  signOutLabel = 'Keluar',
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const normalizedSections = sections.length > 0
@@ -28,8 +28,8 @@ const AppSidebar = ({
               setIsCollapsed(false);
             }
           }}
-          aria-label={isCollapsed ? 'Expand sidebar' : `${brand} home`}
-          title={isCollapsed ? 'Expand sidebar' : brand}
+          aria-label={isCollapsed ? 'Buka sidebar' : `Beranda ${brand}`}
+          title={isCollapsed ? 'Buka sidebar' : brand}
         >
           <div className="app-shell-sidebar__brand-box">
             <i className="fa-solid fa-truck-fast app-shell-sidebar__brand-icon app-shell-sidebar__brand-icon--default"></i>
@@ -46,15 +46,15 @@ const AppSidebar = ({
             type="button"
             className="app-shell-sidebar__toggle"
             onClick={() => setIsCollapsed(true)}
-            aria-label="Collapse sidebar"
-            title="Collapse sidebar"
+            aria-label="Tutup sidebar"
+            title="Tutup sidebar"
           >
             <i className="fa-solid fa-chevron-left"></i>
           </button>
         ) : null}
       </div>
 
-      <nav className="app-shell-sidebar__nav" aria-label={`${brand} navigation`}>
+      <nav className="app-shell-sidebar__nav" aria-label={`Navigasi ${brand}`}>
         {normalizedSections.map((section, sectionIndex) => (
           <div className="app-shell-sidebar__section" key={section.label || sectionIndex}>
             {section.label ? (
