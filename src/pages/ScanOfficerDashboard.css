@@ -11,7 +11,8 @@
 }
 
 .receiving-mobile__content.is-receive {
-  padding: 0 0 104px;
+  min-height: 100svh;
+  padding: 0;
 }
 
 .receiving-mobile__stack {
@@ -117,7 +118,8 @@
 
 .receiving-fullscan {
   background: #081321;
-  min-height: calc(100svh - 64px - 104px);
+  height: 100svh;
+  min-height: 100svh;
   overflow: hidden;
   position: relative;
 }
@@ -128,7 +130,7 @@
   gap: 10px;
   grid-template-columns: auto minmax(0, 1fr) auto;
   left: 0;
-  padding: 14px;
+  padding: 18px 14px 0;
   position: absolute;
   right: 0;
   top: 0;
@@ -143,35 +145,42 @@
   color: #ffffff;
   cursor: pointer;
   display: inline-flex;
-  height: 38px;
+  height: 42px;
   justify-content: center;
-  width: 38px;
+  width: 42px;
 }
 
-.receiving-fullscan__topcopy {
-  display: grid;
-  gap: 2px;
+.receiving-fullscan__icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.receiving-fullscan__icon-btn.is-active {
+  background: rgba(13, 85, 242, 0.86);
+}
+
+.receiving-fullscan__scope {
   min-width: 0;
 }
 
-.receiving-fullscan__topcopy strong {
+.receiving-fullscan__scope span {
   color: #ffffff;
-  font-size: 0.95rem;
-  font-weight: 800;
-  letter-spacing: -0.03em;
+  display: block;
+  font-size: 0.88rem;
+  font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.receiving-fullscan__topcopy span {
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 0.72rem;
+.receiving-fullscan__tools {
+  display: inline-flex;
+  gap: 8px;
 }
 
 .receiving-fullscan__camera {
   border-radius: 0;
-  height: calc(100svh - 64px - 104px);
+  height: 100svh;
 }
 
 .receiving-fullscan__camera--manual {
@@ -258,11 +267,11 @@
   display: grid;
   gap: 12px;
   left: 0;
-  max-height: 78svh;
+  max-height: 72svh;
   padding: 10px 14px calc(18px + env(safe-area-inset-bottom, 0px));
   position: absolute;
   right: 0;
-  transform: translateY(calc(100% - 156px));
+  transform: translateY(calc(100% - 148px));
   transition: transform 220ms ease;
   z-index: 7;
 }
@@ -328,6 +337,7 @@
 .receiving-sheet__content {
   display: grid;
   gap: 12px;
+  min-height: 0;
   overflow-y: auto;
   padding-bottom: 4px;
 }
@@ -340,14 +350,53 @@
   color: #65738a;
   font-size: 0.8rem;
   line-height: 1.45;
+  padding-bottom: 4px;
   text-align: center;
 }
 
 .receiving-sheet__empty {
   display: grid;
   gap: 6px;
-  padding: 4px 2px 8px;
+  padding: 4px 2px 4px;
   text-align: center;
+}
+
+.scanner-faq {
+  display: grid;
+  gap: 10px;
+}
+
+.scanner-faq__item {
+  background: #f8fbff;
+  border-radius: 18px;
+  padding: 2px;
+}
+
+.scanner-faq__trigger {
+  align-items: center;
+  background: transparent;
+  border: none;
+  color: #142033;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  justify-content: space-between;
+  padding: 14px 16px;
+  text-align: left;
+  width: 100%;
+}
+
+.scanner-faq__answer {
+  padding: 0 16px 14px;
+}
+
+.scanner-faq__answer p {
+  color: #65738a;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  margin: 0;
 }
 
 .receiving-sheet__empty strong {

@@ -8,8 +8,8 @@ const iconByIntent = {
 };
 
 const ConfirmModal = ({
-  cancelLabel = 'Cancel',
-  confirmLabel = 'Continue',
+  cancelLabel = 'Batal',
+  confirmLabel = 'Lanjutkan',
   intent = 'warning',
   message,
   onCancel,
