@@ -178,9 +178,11 @@
   gap: 8px;
 }
 
-.receiving-fullscan__camera {
+.camera-viewport.receiving-fullscan__camera {
+  align-items: stretch;
   border-radius: 0;
   height: 100svh;
+  width: 100%;
 }
 
 .receiving-fullscan__camera--manual {
