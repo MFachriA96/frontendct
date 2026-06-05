@@ -16,6 +16,12 @@ const LoginForm = ({
 }) => (
   <section className="login-form-shell" aria-label="Form login">
     <div className="login-form-card">
+      <div className="login-form-card__mobile-brand" aria-hidden="true">
+        <div className="brand-box">
+          <i className="fa-solid fa-truck-fast"></i>
+        </div>
+      </div>
+
       <div className="login-form-card__intro">
         <h2>Masuk</h2>
         <p className="login-form-card__subtitle">Gunakan akun yang sudah dibuat admin.</p>
