@@ -16,7 +16,7 @@
 
 .admin-sidebar-shell__logo {
   align-items: center;
-  background: #0d55f2;
+  background: var(--brand-navy);
   border-radius: 16px;
   display: flex;
   height: 48px;

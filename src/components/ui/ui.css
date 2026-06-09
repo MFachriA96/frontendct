@@ -24,21 +24,21 @@
 }
 
 .app-button--primary {
-  background: #0d55f2;
+  background: var(--brand-navy);
   color: #ffffff;
 }
 
 .app-button--primary:hover:not(:disabled) {
-  background: #0b4bdd;
+  background: var(--brand-navy-hover);
 }
 
 .app-button--secondary {
-  background: #eef4ff;
-  color: #0d55f2;
+  background: var(--brand-navy-soft);
+  color: var(--brand-navy);
 }
 
 .app-button--secondary:hover:not(:disabled) {
-  background: #e4edff;
+  background: var(--brand-navy-soft-2);
 }
 
 .app-input-field {
@@ -199,12 +199,12 @@
 }
 
 .ui-modal-status--info .ui-modal-status__icon {
-  background: #eef4ff;
-  color: #0d55f2;
+  background: var(--brand-navy-soft);
+  color: var(--brand-navy);
 }
 
 .ui-modal-status--info .ui-modal-status__pulse {
-  background: rgba(13, 85, 242, 0.14);
+  background: rgba(var(--brand-navy-rgb), 0.14);
 }
 
 .ui-modal-status__copy {

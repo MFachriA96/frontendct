@@ -1,4 +1,12 @@
 /* Global Resets */
+:root {
+  --brand-navy: #0a2f88;
+  --brand-navy-hover: #08276f;
+  --brand-navy-soft: #e9eefb;
+  --brand-navy-soft-2: #dde6fb;
+  --brand-navy-rgb: 10, 47, 136;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
 }

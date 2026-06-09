@@ -1,6 +1,6 @@
 .workspace-header {
   align-items: center;
-  background: #0d55f2;
+  background: var(--brand-navy);
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -85,7 +85,7 @@
 }
 
 .mobile-bottom-nav__item.is-prominent {
-  background: #0d55f2;
+  background: var(--brand-navy);
   border-radius: 999px;
   color: #ffffff;
   margin-top: -18px;
@@ -108,8 +108,8 @@
 }
 
 .mobile-bottom-nav__item.is-active {
-  background: #eef3fb;
-  color: #0d55f2;
+  background: var(--brand-navy-soft);
+  color: var(--brand-navy);
 }
 
 .mobile-bottom-nav__item span {
@@ -245,7 +245,7 @@
 }
 
 .progress-bar__fill {
-  background: #0d55f2;
+  background: var(--brand-navy);
   border-radius: inherit;
   height: 100%;
 }

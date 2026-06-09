@@ -2,12 +2,12 @@ import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
+import JSZip from 'jszip';
 import { API_BASE_URL } from '../config/api';
 import {
   buildRecentShipmentActivity,
   buildVendorDashboardHeroMetrics,
   buildVendorDashboardPrimaryCards,
-  buildQrDownloadLabel,
   canAccessQrForShipment,
   filterShipmentsByStatusGroup,
   getQrProductName,
@@ -16,6 +16,7 @@ import {
   getShipmentStatusCounts,
   normalizeStatus,
   normalizeQrTokens,
+  sortShipmentsByLatestDate,
   validateOutboundSchedule,
   normalizeAnalyticsResponse,
   buildTrendChartData,
@@ -28,19 +29,24 @@ import AppSkeleton from '../components/ui/AppSkeleton';
 import BaseModalShell from '../components/ui/BaseModalShell';
 import ConfirmModal from '../components/ui/ConfirmModal';
 import StatusModal from '../components/ui/StatusModal';
+import { openReportPdf } from '../utils/reportUtils';
 import './VendorDashboard.css';
 
 const LazyAnalyticsTrendChart = lazy(() => import('../components/AnalyticsTrendChart'));
 
 const vendorStatusText = {
-  draft: 'Belum Dikirim',
-  submitted: 'Siap Diproses',
-  in_transit: 'Sedang Dikirim',
-  arrived: 'Sudah Tiba',
-  verified: 'Sudah Dicek',
+  draft: 'Belum dikirim',
+  submitted: 'Sedang dikirim',
+  in_transit: 'Sedang dikirim',
+  arrived: 'Sudah diterima',
+  verified: 'Sudah diterima',
   delivered: 'Selesai',
-  discrepancy: 'Perlu Tindak Lanjut',
+  discrepancy: 'Perlu tindak lanjut',
 };
+
+const getVendorStatusLabel = (status) => (
+  vendorStatusText[normalizeStatus(status)] || String(status || 'Tidak diketahui').replace(/_/g, ' ')
+);
 
 const reportStatusText = {
   draft: 'Draft',
@@ -101,20 +107,20 @@ const VendorTableSkeleton = ({ columns = 4, rows = 5 }) => (
     ))}
   </tbody>
 );
-const VendorDashboard = () => {
-  const approvedProductNames = [
-    'Printer Housing Cover',
-    'Paper Tray Assembly',
-    'Scanner Unit Assembly',
-    'Ink Tank Module',
-    'Print Head Unit',
-    'Paper Feed Assembly',
-    'Control Panel Assembly',
-    'Power Supply Unit',
-    'Mainboard Assembly',
-    'Roller Assembly'
-  ];
+const APPROVED_PRODUCT_NAMES = [
+  'Printer Housing Cover',
+  'Paper Tray Assembly',
+  'Scanner Unit Assembly',
+  'Ink Tank Module',
+  'Print Head Unit',
+  'Paper Feed Assembly',
+  'Control Panel Assembly',
+  'Power Supply Unit',
+  'Mainboard Assembly',
+  'Roller Assembly',
+];
 
+const VendorDashboard = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [shipmentStatusFilter, setShipmentStatusFilter] = useState('total');
   const [shipments, setShipments] = useState([]);
@@ -149,12 +155,17 @@ const VendorDashboard = () => {
   const [qrTokens, setQrTokens] = useState([]);
   const [selectedShipmentId, setSelectedShipmentId] = useState(null);
   const [qrLoading, setQrLoading] = useState(false);
+  const [qrBulkDownloadLoading, setQrBulkDownloadLoading] = useState(false);
+  const [qrPrintLoading, setQrPrintLoading] = useState(false);
+  const [qrToast, setQrToast] = useState({ open: false, type: 'info', message: '' });
   const [qrCache, setQrCache] = useState({});
 
   // Shipment Details Modal State
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedShipmentDetails, setSelectedShipmentDetails] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
+  const [editingDraftId, setEditingDraftId] = useState(null);
+  const [editingDraftNumber, setEditingDraftNumber] = useState('');
   const [reportModalData, setReportModalData] = useState(null);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [statusModal, setStatusModal] = useState({
@@ -196,6 +207,62 @@ const VendorDashboard = () => {
       title,
       message,
     });
+  };
+
+  const openQrToast = (type, message) => {
+    setQrToast({
+      open: true,
+      type,
+      message,
+    });
+  };
+
+  const openQrPrintSheet = (groups, scopeLabel) => {
+    const printableGroups = groups
+      .map((group) => ({
+        productName: group.productName,
+        tokens: group.tokens
+          .filter((token) => Boolean(token?.qr_token))
+          .map((token) => {
+            const svgElement = document.getElementById(`qr-svg-${getQrDomKey(token, token._qrIndex)}`);
+            return {
+              productName: group.productName,
+              boxCode: token.box_code || (token.box_sequence ? `Box ${token.box_sequence}` : 'Box'),
+              quantityInBox: token.expected_qty_in_box ?? '-',
+              qrToken: token.qr_token || 'Token belum tersedia',
+              svgMarkup: svgElement?.outerHTML || '',
+            };
+          }),
+      }))
+      .filter((group) => group.tokens.length > 0);
+
+    if (printableGroups.length === 0) {
+      openQrToast('warning', 'Belum ada QR yang siap dicetak.');
+      return false;
+    }
+
+    const jobId = `vendor-qr-print-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const scopeTitle = scopeLabel
+      ? `Cetak QR ${scopeLabel}`
+      : `Cetak QR Shipment ${selectedShipmentId || '-'}`;
+
+    const payload = {
+      title: scopeTitle,
+      description: 'Siap untuk kebutuhan kirim, scan, dan fallback input manual petugas.',
+      printedAt: new Date().toLocaleString('id-ID'),
+      groups: printableGroups,
+    };
+
+    window.sessionStorage.setItem(jobId, JSON.stringify(payload));
+    const printWindow = window.open(`/vendor-qr-print?job=${encodeURIComponent(jobId)}`, '_blank');
+
+    if (!printWindow) {
+      window.sessionStorage.removeItem(jobId);
+      openQrToast('warning', 'Pop-up print diblokir browser. Izinkan pop-up lalu coba lagi.');
+      return false;
+    }
+
+    return true;
   };
 
   const getAuthHeaders = () => {
@@ -262,7 +329,7 @@ const VendorDashboard = () => {
       });
       const resData = response.data.data;
       const shipmentsArray = Array.isArray(resData) ? resData : (resData?.data || []);
-      setShipments(shipmentsArray);
+      setShipments(sortShipmentsByLatestDate(shipmentsArray));
     } catch (error) {
       console.error('Error fetching shipments:', error);
     } finally {
@@ -332,8 +399,8 @@ const VendorDashboard = () => {
       const productData = response.data?.data || [];
       const approvedProducts = Array.isArray(productData)
         ? productData
-            .filter(product => approvedProductNames.includes(product.nama_barang))
-            .sort((a, b) => approvedProductNames.indexOf(a.nama_barang) - approvedProductNames.indexOf(b.nama_barang))
+            .filter(product => APPROVED_PRODUCT_NAMES.includes(product.nama_barang))
+            .sort((a, b) => APPROVED_PRODUCT_NAMES.indexOf(a.nama_barang) - APPROVED_PRODUCT_NAMES.indexOf(b.nama_barang))
         : [];
       setProductOptions(approvedProducts);
     } catch (error) {
@@ -543,6 +610,18 @@ const VendorDashboard = () => {
   }, []);
 
   useEffect(() => {
+    if (!qrToast.open) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setQrToast((prev) => ({ ...prev, open: false }));
+    }, 2200);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [qrToast]);
+
+  useEffect(() => {
     const handlePointerDown = (event) => {
       if (profileMenuRef.current && !profileMenuRef.current.contains(event.target)) {
         setProfileMenuOpen(false);
@@ -595,6 +674,17 @@ const VendorDashboard = () => {
     setItems([...items, { ID_barang: '', nama_barang: '', product_mode: 'select', quantity_outbound: 100, quantity_per_box: 10 }]);
   };
 
+  const resetShipmentForm = (nextOrigin = '') => {
+    setEditingDraftId(null);
+    setEditingDraftNumber('');
+    setLokasiAsal(nextOrigin);
+    setTargetWarehouseId('');
+    setWaktuKirim('');
+    setEstimasiTiba('');
+    setFormErrors({});
+    setItems([{ ID_barang: '', nama_barang: '', product_mode: 'select', quantity_outbound: 100, quantity_per_box: 10 }]);
+  };
+
   const handleRemoveItem = (index) => {
     const newItems = [...items];
     newItems.splice(index, 1);
@@ -605,6 +695,28 @@ const VendorDashboard = () => {
     const newItems = [...items];
     newItems[index][field] = value;
     setItems(newItems);
+  };
+
+  const populateDraftForm = (shipmentData) => {
+    const draftItems = Array.isArray(shipmentData?.details) && shipmentData.details.length > 0
+      ? shipmentData.details.map((detail) => ({
+          ID_barang: detail.ID_barang ? String(detail.ID_barang) : '',
+          nama_barang: detail.nama_barang || '',
+          product_mode: detail.ID_barang ? 'select' : 'custom',
+          quantity_outbound: detail.quantity_outbound ?? 1,
+          quantity_per_box: detail.quantity_per_box ?? 1,
+        }))
+      : [{ ID_barang: '', nama_barang: '', product_mode: 'select', quantity_outbound: 100, quantity_per_box: 10 }];
+
+    setEditingDraftId(shipmentData?.ID_outbound || null);
+    setEditingDraftNumber(shipmentData?.no_pengiriman || '');
+    setLokasiAsal(shipmentData?.lokasi_asal || resolveVendorOrigin(user) || '');
+    setTargetWarehouseId(shipmentData?.ID_gudang_tujuan ? String(shipmentData.ID_gudang_tujuan) : '');
+    setWaktuKirim(shipmentData?.waktu_kirim ? String(shipmentData.waktu_kirim).slice(0, 10) : '');
+    setEstimasiTiba(shipmentData?.estimasi_tiba ? String(shipmentData.estimasi_tiba).slice(0, 10) : '');
+    setFormErrors({});
+    setItems(draftItems);
+    setActiveTab('create-shipment');
   };
 
   const handleProductSelectionChange = (index, value) => {
@@ -634,7 +746,7 @@ const VendorDashboard = () => {
     const nextErrors = {};
 
     if (!waktuKirim) {
-      nextErrors.waktuKirim = 'Dispatch Date is required.';
+      nextErrors.waktuKirim = 'Tanggal kirim wajib diisi.';
     }
 
     if (!estimasiTiba) {
@@ -642,7 +754,7 @@ const VendorDashboard = () => {
     }
 
     if (!targetWarehouseId) {
-      nextErrors.targetWarehouseId = 'Target warehouse is required.';
+      nextErrors.targetWarehouseId = 'Gudang tujuan wajib dipilih.';
     }
 
     if (waktuKirim && estimasiTiba) {
@@ -701,10 +813,14 @@ const VendorDashboard = () => {
         details: details
       };
 
-      const res = await axios.post(`${API_BASE_URL}/api/outbound`, payload, {
-        headers: session.headers
-      });
-      
+      const res = editingDraftId
+        ? await axios.put(`${API_BASE_URL}/api/outbound/${editingDraftId}`, payload, {
+            headers: session.headers
+          })
+        : await axios.post(`${API_BASE_URL}/api/outbound`, payload, {
+            headers: session.headers
+          });
+
       const outboundId = res.data.data.ID_outbound;
 
       if (isSubmit) {
@@ -722,20 +838,22 @@ const VendorDashboard = () => {
         setSelectedShipmentId(outboundId);
         setShowQRModal(true);
       } else {
-        openStatusModal('success', 'Draft tersimpan', 'Shipment berhasil disimpan sebagai draft.');
+        openStatusModal(
+          'success',
+          editingDraftId ? 'Draft diperbarui' : 'Draft tersimpan',
+          editingDraftId
+            ? 'Perubahan draft shipment berhasil disimpan.'
+            : 'Shipment berhasil disimpan sebagai draft.',
+        );
       }
 
       // Reset form
-      setLokasiAsal(resolveVendorOrigin(session.user));
-      setTargetWarehouseId('');
-      setWaktuKirim('');
-      setEstimasiTiba('');
-      setFormErrors({});
-      setItems([{ ID_barang: '', nama_barang: '', product_mode: 'select', quantity_outbound: 100, quantity_per_box: 10 }]);
+      resetShipmentForm(resolveVendorOrigin(session.user));
       setActiveTab('shipments');
       await Promise.all([
         fetchShipments(session),
         fetchVendorOverview(session),
+        fetchVendorAnalytics(session),
       ]);
 
     } catch (error) {
@@ -783,16 +901,16 @@ const VendorDashboard = () => {
 
   const handleCopyQrToken = async (qrToken) => {
     if (!qrToken) {
-      openStatusModal('warning', 'Token belum tersedia', 'QR token untuk box ini belum tersedia.');
+      openQrToast('warning', 'Token untuk box ini belum tersedia.');
       return;
     }
 
     try {
       await navigator.clipboard.writeText(qrToken);
-      openStatusModal('success', 'Token disalin', 'QR token berhasil disalin ke clipboard.');
+      openQrToast('success', 'Token berhasil disalin.');
     } catch (error) {
       console.error('Failed to copy QR token:', error);
-      openStatusModal('warning', 'Salin otomatis gagal', `Silakan salin token ini secara manual: ${qrToken}`);
+      openQrToast('warning', 'Salin otomatis gagal. Silakan salin manual dari token yang tampil.');
     }
   };
 
@@ -823,20 +941,29 @@ const VendorDashboard = () => {
     });
   };
 
+  const getQrDomKey = (token, index) => (
+    token?.box_code
+    || token?.box_sequence
+    || token?.qr_token
+    || `${token?.ID_outbound_detail || 'detail'}-${index + 1}`
+  );
+
   const getQrFileName = (token, index) => {
-    const detailId = token?.ID_outbound_detail || index + 1;
-    return `shipment-${selectedShipmentId || 'qr'}-detail-${detailId}-qr.png`;
+    const detailId = token?.ID_outbound_detail || 'detail';
+    const boxIdentifier = token?.box_code
+      || (token?.box_sequence ? `box-${token.box_sequence}` : `box-${index + 1}`);
+    return `shipment-${selectedShipmentId || 'qr'}-${detailId}-${boxIdentifier}-qr.png`;
   };
 
-  const handleDownloadQr = (token, index) => {
+  const buildQrImageBlob = (token, index) => new Promise((resolve, reject) => {
     if (!token?.qr_token) {
-      openStatusModal('warning', 'QR belum tersedia', 'QR token untuk box ini belum tersedia.');
+      reject(new Error('QR token untuk box ini belum tersedia.'));
       return;
     }
 
-    const svgElement = document.getElementById(`qr-svg-${token.ID_outbound_detail || index}`);
+    const svgElement = document.getElementById(`qr-svg-${getQrDomKey(token, index)}`);
     if (!svgElement) {
-      openStatusModal('warning', 'QR belum siap', 'QR masih dirender. Coba lagi sebentar.');
+      reject(new Error('QR masih dirender. Coba lagi sebentar.'));
       return;
     }
 
@@ -848,11 +975,27 @@ const VendorDashboard = () => {
     image.onload = () => {
       const padding = 24;
       const qrSize = 180;
-      const label = buildQrDownloadLabel(token);
-      const labelLines = label.split(' | ');
+      const productName = getQrProductName(token);
+      const boxCode = token.box_code || (token.box_sequence ? `Box ${token.box_sequence}` : 'Box');
+      const quantityInBox = token.expected_qty_in_box ?? '-';
+      const qrToken = token.qr_token || 'Token belum tersedia';
+      const tokenPrefix = 'TOKEN: ';
+      const tokenLineWidth = 24;
+      const tokenChunks = [];
+
+      for (let cursor = 0; cursor < qrToken.length; cursor += tokenLineWidth) {
+        tokenChunks.push(qrToken.slice(cursor, cursor + tokenLineWidth));
+      }
+
+      const tokenLines = tokenChunks.length > 0
+        ? tokenChunks.map((chunk, chunkIndex) => `${chunkIndex === 0 ? tokenPrefix : '       '}${chunk}`)
+        : [tokenPrefix + 'Token belum tersedia'];
+
+      const labelBaseY = padding + qrSize + 12;
+      const tokenLineHeight = 14;
       const canvas = document.createElement('canvas');
       canvas.width = qrSize + padding * 2;
-      canvas.height = qrSize + padding * 2 + 72;
+      canvas.height = qrSize + padding * 2 + 78 + (Math.max(tokenLines.length - 1, 0) * tokenLineHeight);
 
       const context = canvas.getContext('2d');
       context.fillStyle = '#ffffff';
@@ -862,37 +1005,94 @@ const VendorDashboard = () => {
       context.textAlign = 'center';
       context.textBaseline = 'top';
       context.font = '700 14px Arial, sans-serif';
-      context.fillText(labelLines[0], canvas.width / 2, padding + qrSize + 12, canvas.width - padding * 2);
+      context.fillText(productName, canvas.width / 2, labelBaseY, canvas.width - padding * 2);
       context.font = '12px Arial, sans-serif';
       context.fillStyle = '#475569';
-      context.fillText(labelLines[1], canvas.width / 2, padding + qrSize + 32, canvas.width - padding * 2);
+      context.fillText(`${boxCode}  Qty ${quantityInBox}`, canvas.width / 2, labelBaseY + 20, canvas.width - padding * 2);
       context.font = '11px "Courier New", monospace';
-      context.fillText(labelLines[2], canvas.width / 2, padding + qrSize + 50, canvas.width - padding * 2);
+      context.fillStyle = '#1e293b';
+      tokenLines.forEach((line, lineIndex) => {
+        context.fillText(line, canvas.width / 2, labelBaseY + 40 + (lineIndex * tokenLineHeight), canvas.width - padding * 2);
+      });
 
       canvas.toBlob((blob) => {
         URL.revokeObjectURL(svgUrl);
         if (!blob) {
-          openStatusModal('error', 'Unduhan gagal', 'Gambar QR belum bisa disiapkan untuk diunduh.');
+          reject(new Error('Gambar QR belum bisa disiapkan untuk diunduh.'));
           return;
         }
 
-        const downloadUrl = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.download = getQrFileName(token, index);
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(downloadUrl);
+        resolve(blob);
       }, 'image/png');
     };
 
     image.onerror = () => {
       URL.revokeObjectURL(svgUrl);
-      openStatusModal('error', 'Unduhan gagal', 'Gambar QR belum bisa disiapkan untuk diunduh.');
+      reject(new Error('Gambar QR belum bisa disiapkan untuk diunduh.'));
     };
 
     image.src = svgUrl;
+  });
+
+  const handleDownloadQr = async (token, index) => {
+    try {
+      const blob = await buildQrImageBlob(token, index);
+      const downloadUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = getQrFileName(token, index);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Gambar QR belum bisa disiapkan untuk diunduh.';
+      openStatusModal('error', 'Unduhan gagal', message);
+    }
+  };
+
+  const handleDownloadAllQr = async () => {
+    const downloadableTokens = qrTokens.filter((token) => Boolean(token?.qr_token));
+
+    if (downloadableTokens.length === 0) {
+      openStatusModal('warning', 'QR belum tersedia', 'Belum ada QR yang bisa diunduh untuk shipment ini.');
+      return;
+    }
+
+    try {
+      setQrBulkDownloadLoading(true);
+      const zip = new JSZip();
+      const folder = zip.folder(`shipment-${selectedShipmentId || 'qr'}`);
+
+      await Promise.all(downloadableTokens.map(async (token, index) => {
+        const blob = await buildQrImageBlob(token, index);
+        folder.file(getQrFileName(token, index), blob);
+      }));
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const downloadUrl = URL.createObjectURL(zipBlob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `shipment-${selectedShipmentId || 'qr'}-all-qr.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'ZIP QR belum bisa disiapkan untuk diunduh.';
+      openStatusModal('error', 'Unduhan massal gagal', message);
+    } finally {
+      setQrBulkDownloadLoading(false);
+    }
+  };
+
+  const handlePrintAllQr = () => {
+    setQrPrintLoading(true);
+    try {
+      openQrPrintSheet(groupedQrTokens, `Shipment ${selectedShipmentId || '-'}`);
+    } finally {
+      setQrPrintLoading(false);
+    }
   };
 
   const handleViewShipmentDetails = async (shipment) => {
@@ -972,80 +1172,6 @@ const VendorDashboard = () => {
     }
   };
 
-  const openReportPdf = (report) => {
-    if (!report) return;
-
-    const discrepancy = report.discrepancy || {};
-    const shipment = discrepancy.shipment || {};
-    const item = discrepancy.item || {};
-    const html = `
-      <!doctype html>
-      <html>
-        <head>
-          <title>${report.no_dokumen_r1 || 'Dokumen R1'}</title>
-          <style>
-            body { font-family: Arial, sans-serif; color: #1e293b; margin: 32px; }
-            .header { border-bottom: 3px solid #003399; padding-bottom: 18px; margin-bottom: 24px; }
-            h1 { margin: 0 0 8px; color: #003399; }
-            .muted { color: #64748b; }
-            .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 20px 0; }
-            .box { border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px; }
-            .label { display: block; color: #64748b; font-size: 12px; text-transform: uppercase; font-weight: 700; margin-bottom: 6px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 18px; }
-            th, td { border: 1px solid #cbd5e1; padding: 10px; text-align: left; }
-            th { background: #f8fafc; color: #475569; font-size: 12px; text-transform: uppercase; }
-            .danger { color: #dc2626; font-weight: 700; }
-            .notes { white-space: pre-wrap; line-height: 1.5; }
-            .footer { margin-top: 36px; color: #64748b; font-size: 12px; }
-            @media print { button { display: none; } body { margin: 20px; } }
-          </style>
-        </head>
-        <body>
-          <button onclick="window.print()" style="float:right;padding:10px 14px;background:#003399;color:#fff;border:0;border-radius:6px;">Print / Save PDF</button>
-          <div class="header">
-            <h1>Dokumen R1 Tindak Lanjut</h1>
-            <div class="muted">${report.no_dokumen_r1 || '-'} • Status: ${(report.status_dokumen || '-').replaceAll('_', ' ')}</div>
-          </div>
-          <div class="grid">
-            <div class="box"><span class="label">Vendor</span><strong>${shipment.vendor?.nama_vendor || '-'}</strong></div>
-            <div class="box"><span class="label">Shipment</span><strong>${shipment.no_pengiriman || `SHP-${shipment.ID_outbound || '-'}`}</strong></div>
-            <div class="box"><span class="label">Asal</span><strong>${shipment.lokasi_asal || '-'}</strong></div>
-            <div class="box"><span class="label">Waktu Kirim</span><strong>${formatDateTime(shipment.waktu_kirim)}</strong></div>
-          </div>
-          <table>
-            <thead><tr><th>Produk</th><th>Ekspektasi</th><th>Diterima</th><th>Selisih</th><th>Status</th></tr></thead>
-            <tbody>
-              <tr>
-                <td>${item.nama_barang || '-'}</td>
-                <td>${discrepancy.quantity_outbound ?? '-'}</td>
-                <td>${discrepancy.quantity_inbound ?? '-'}</td>
-                <td class="danger">${discrepancy.selisih ?? '-'}</td>
-                <td>${discrepancy.status || '-'}</td>
-              </tr>
-            </tbody>
-          </table>
-          <h2>Instruksi Manager</h2>
-          <div class="box notes">${report.keterangan || '-'}</div>
-          <div class="footer">Dibuat oleh Epson Verification System pada ${formatDateTime(report.dibuat_at || new Date())}</div>
-        </body>
-      </html>
-    `;
-
-    const reportBlob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    const reportUrl = URL.createObjectURL(reportBlob);
-    const reportWindow = window.open(reportUrl, '_blank');
-
-    if (!reportWindow) {
-      const link = document.createElement('a');
-      link.href = reportUrl;
-      link.download = `${report.no_dokumen_r1 || 'mismatch-report'}.html`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    }
-
-    window.setTimeout(() => URL.revokeObjectURL(reportUrl), 60000);
-  };
 
   const getStatusBadge = (shipmentOrStatus) => {
     const shipment = typeof shipmentOrStatus === 'object' && shipmentOrStatus !== null
@@ -1058,14 +1184,41 @@ const VendorDashboard = () => {
     }
 
     switch(status) {
-      case 'draft': return <span className="status-badge status-draft"><i className="fa-solid fa-pen"></i> Masih Disiapkan</span>;
-      case 'submitted': return <span className="status-badge status-submitted"><i className="fa-solid fa-paper-plane"></i> Siap Dikirim</span>;
-      case 'in_transit': return <span className="status-badge status-submitted"><i className="fa-solid fa-truck-fast"></i> Sedang Dikirim</span>;
-      case 'arrived': return <span className="status-badge status-delivered"><i className="fa-solid fa-check"></i> Sudah Tiba</span>;
-      case 'verified': return <span className="status-badge status-delivered"><i className="fa-solid fa-check-double"></i> Sudah Diverifikasi</span>;
+      case 'draft': return <span className="status-badge status-draft"><i className="fa-solid fa-pen"></i> {getVendorStatusLabel(status)}</span>;
+      case 'submitted': return <span className="status-badge status-submitted"><i className="fa-solid fa-paper-plane"></i> {getVendorStatusLabel(status)}</span>;
+      case 'in_transit': return <span className="status-badge status-submitted"><i className="fa-solid fa-truck-fast"></i> {getVendorStatusLabel(status)}</span>;
+      case 'arrived': return <span className="status-badge status-delivered"><i className="fa-solid fa-check"></i> {getVendorStatusLabel(status)}</span>;
+      case 'verified': return <span className="status-badge status-delivered"><i className="fa-solid fa-check-double"></i> {getVendorStatusLabel(status)}</span>;
       case 'delivered': return <span className="status-badge status-delivered"><i className="fa-solid fa-box-open"></i> Selesai</span>;
-      case 'discrepancy': return <span className="status-badge status-discrepancy"><i className="fa-solid fa-triangle-exclamation"></i> Perlu Klarifikasi</span>;
-      default: return <span className="status-badge status-draft">{String(status || 'Unknown').replace(/_/g, ' ')}</span>;
+      case 'discrepancy': return <span className="status-badge status-discrepancy"><i className="fa-solid fa-triangle-exclamation"></i> {getVendorStatusLabel(status)}</span>;
+      default: return <span className="status-badge status-draft">{getVendorStatusLabel(status)}</span>;
+    }
+  };
+
+  const handleEditDraft = async (shipment) => {
+    try {
+      const session = await ensureVendorSession();
+      if (!session) {
+        return;
+      }
+
+      const response = await axios.get(`${API_BASE_URL}/api/outbound/${shipment.ID_outbound}`, {
+        headers: session.headers
+      });
+
+      const draftData = response.data?.data || shipment;
+      populateDraftForm(draftData);
+
+      if (!draftData?.ID_gudang_tujuan) {
+        openStatusModal(
+          'info',
+          'Pilih ulang gudang tujuan',
+          'Draft berhasil dibuka untuk diedit. Gudang tujuan perlu dipilih ulang karena data lama belum ikut dikirim backend.',
+        );
+      }
+    } catch (error) {
+      console.error('Error loading draft for edit:', error);
+      openStatusModal('error', 'Draft gagal dibuka', 'Draft shipment belum bisa dibuka untuk diedit saat ini.');
     }
   };
 
@@ -1087,7 +1240,9 @@ const VendorDashboard = () => {
   // Stats
   const shipmentCounts = getShipmentStatusCounts(shipments);
   const overviewCounts = vendorOverview?.shipment_status_distribution || shipmentCounts;
-  const filteredShipments = filterShipmentsByStatusGroup(shipments, shipmentStatusFilter);
+  const filteredShipments = sortShipmentsByLatestDate(
+    filterShipmentsByStatusGroup(shipments, shipmentStatusFilter)
+  );
   const recentShipmentActivity = buildRecentShipmentActivity(shipments, 8);
   const upcomingShipmentSchedule = getUpcomingShipmentSchedule(shipments, 4);
   const qrReadiness = vendorOverview?.qr_readiness || {
@@ -1096,6 +1251,32 @@ const VendorDashboard = () => {
     total_qr: shipments.reduce((total, shipment) => total + Number(shipment.total_qr || 0), 0),
     ready_qr: shipments.reduce((total, shipment) => total + Number(shipment.ready_qr || 0), 0),
   };
+  const groupedQrTokens = qrTokens.reduce((groups, token, index) => {
+    const productName = getQrProductName(token);
+    const nextToken = {
+      ...token,
+      _qrIndex: index,
+    };
+    const existingGroup = groups.find((group) => group.productName === productName);
+
+    if (existingGroup) {
+      existingGroup.tokens.push(nextToken);
+      return groups;
+    }
+
+    groups.push({
+      productName,
+      tokens: [nextToken],
+    });
+    return groups;
+  }, []).map((group) => ({
+    ...group,
+    tokens: [...group.tokens].sort((left, right) => {
+      const leftSequence = Number(left.box_sequence ?? left._qrIndex);
+      const rightSequence = Number(right.box_sequence ?? right._qrIndex);
+      return leftSequence - rightSequence;
+    }),
+  }));
   const discrepancyAlert = vendorOverview?.discrepancy_alert || {
     total_non_match: shipments.filter((shipment) => shipment.has_discrepancy).length,
     pending_review: 0,
@@ -1147,7 +1328,7 @@ const VendorDashboard = () => {
       return { label: 'Menunggu Verifikasi Epson', tone: 'status-draft' };
     }
 
-    return { label: vendorStatusText[status] || 'Dipantau', tone: 'status-draft' };
+    return { label: getVendorStatusLabel(status) || 'Dipantau', tone: 'status-draft' };
   };
   const operationalFocusCards = analyticsPreviewAvailable
     ? [
@@ -1202,8 +1383,7 @@ const VendorDashboard = () => {
           { value: 'dashboard', label: 'Dashboard', icon: 'fa-solid fa-chart-pie' },
           { value: 'shipments', label: 'Shipment outbound', icon: 'fa-solid fa-truck-fast' },
           { value: 'create-shipment', label: 'Buat shipment', icon: 'fa-solid fa-plus-circle' },
-            { value: 'reports', label: 'Tindak lanjut R1', icon: 'fa-regular fa-file-lines' },
-          { value: 'notifications', label: 'Notifikasi', icon: 'fa-regular fa-bell' },
+          { value: 'reports', label: 'Tindak lanjut R1', icon: 'fa-regular fa-file-lines' },
         ]}
         onSelect={setActiveTab}
         onSignOut={() => setLogoutConfirmOpen(true)}
@@ -1669,7 +1849,7 @@ const VendorDashboard = () => {
                       <th>Waktu kirim</th>
                       <th>Asal</th>
                       <th>Status</th>
-                      <th>Aksi</th>
+                      <th className="vendor-shipments-table__action-col">Aksi</th>
                     </tr>
                   </thead>
                   {showVendorShipmentsSkeleton ? (
@@ -1687,12 +1867,47 @@ const VendorDashboard = () => {
                           <td>{formatDateTime(ship.waktu_kirim)}</td>
                           <td>{ship.lokasi_asal}</td>
                           <td>{getStatusBadge(ship)}</td>
-                          <td>
+                          <td className="vendor-shipments-table__action-cell">
                             <div className="vendor-shipment-row__actions">
                               {ship.status === 'draft' && (
                                 <AppButton
                                   type="button"
-                                  className="vendor-row-btn"
+                                  variant="secondary"
+                                  className="vendor-row-btn vendor-row-btn--icon"
+                                  aria-label="Edit draft"
+                                  title="Edit draft"
+                                  onClick={() => handleEditDraft(ship)}
+                                >
+                                  <i className="fa-regular fa-pen-to-square"></i>
+                                </AppButton>
+                              )}
+                              {canAccessQrForShipment(ship) && (
+                                <AppButton
+                                  type="button"
+                                  className="vendor-row-btn vendor-row-btn--icon"
+                                  aria-label="Lihat QR"
+                                  title="Lihat QR"
+                                  onClick={() => handleViewQR(ship.ID_outbound)}
+                                >
+                                  <i className="fa-solid fa-qrcode"></i>
+                                </AppButton>
+                              )}
+                              <AppButton
+                                type="button"
+                                variant="secondary"
+                                className="vendor-row-btn vendor-row-btn--icon"
+                                aria-label="Lihat detail"
+                                title="Lihat detail"
+                                onClick={() => handleViewShipmentDetails(ship)}
+                              >
+                                <i className="fa-regular fa-eye"></i>
+                              </AppButton>
+                              {ship.status === 'draft' && (
+                                <AppButton
+                                  type="button"
+                                  className="vendor-row-btn vendor-row-btn--icon"
+                                  aria-label="Submit shipment"
+                                  title="Submit shipment"
                                   onClick={async () => {
                                     try {
                                       const session = await ensureVendorSession();
@@ -1706,6 +1921,7 @@ const VendorDashboard = () => {
                                       await Promise.all([
                                         fetchShipments(session),
                                         fetchVendorOverview(session),
+                                        fetchVendorAnalytics(session),
                                       ]);
                                       handleViewQR(ship.ID_outbound);
                                     } catch (error) {
@@ -1715,26 +1931,9 @@ const VendorDashboard = () => {
                                     }
                                   }}
                                 >
-                                  Submit
+                                  <i className="fa-solid fa-paper-plane"></i>
                                 </AppButton>
                               )}
-                              {canAccessQrForShipment(ship) && (
-                                <AppButton
-                                  type="button"
-                                  className="vendor-row-btn"
-                                  onClick={() => handleViewQR(ship.ID_outbound)}
-                                >
-                                  QR
-                                </AppButton>
-                              )}
-                              <AppButton
-                                type="button"
-                                variant="secondary"
-                                className="vendor-row-btn"
-                                onClick={() => handleViewShipmentDetails(ship)}
-                              >
-                                Detail
-                              </AppButton>
                             </div>
                           </td>
                         </tr>
@@ -1851,14 +2050,18 @@ const VendorDashboard = () => {
           {/* SECTION: Create Shipment */}
           {activeTab === 'create-shipment' && (
             <div className="page-section active">
-              <div className="card vendor-create-shipment">
+                <div className="card vendor-create-shipment">
                 <div className="card-header vendor-create-shipment__header">
                   <div className="vendor-create-shipment__title-block">
                     <p className="vendor-section-kicker">Langkah 1</p>
-                    <h2 className="card-title">Buat shipment baru</h2>
-                    <p className="vendor-create-shipment__subtitle">Isi rute, susun item, lalu kirim untuk membuat QR per box.</p>
+                    <h2 className="card-title">{editingDraftId ? 'Edit draft shipment' : 'Buat shipment baru'}</h2>
+                    <p className="vendor-create-shipment__subtitle">
+                      {editingDraftId
+                        ? `Perbarui draft ${editingDraftNumber || `#${editingDraftId}`} lalu simpan lagi atau langsung submit.`
+                        : 'Isi rute, susun item, lalu kirim untuk membuat QR per box.'}
+                    </p>
                   </div>
-                  <span className="status-badge status-draft">Status: Draft</span>
+                  <span className="status-badge status-draft">{editingDraftId ? 'Mode: Edit draft' : 'Status: Draft'}</span>
                 </div>
                 
                 <div className="vendor-create-shipment__section">
@@ -2032,11 +2235,24 @@ const VendorDashboard = () => {
                 </div>
 
                 <div className="form-actions vendor-create-shipment__actions">
+                  {editingDraftId && (
+                    <AppButton
+                      type="button"
+                      variant="secondary"
+                      onClick={() => {
+                        resetShipmentForm(resolveVendorOrigin(user));
+                        setActiveTab('shipments');
+                      }}
+                      disabled={submitLoading}
+                    >
+                      Batal edit
+                    </AppButton>
+                  )}
                   <AppButton type="button" variant="secondary" onClick={() => handleSubmitShipment(false)} disabled={submitLoading}>
-                    Simpan draft
+                    {editingDraftId ? 'Update draft' : 'Simpan draft'}
                   </AppButton>
                   <AppButton type="button" onClick={() => handleSubmitShipment(true)} disabled={submitLoading}>
-                    <i className="fa-solid fa-paper-plane" style={{ marginRight: '8px' }}></i> {submitLoading ? 'Memproses...' : 'Submit & Buat QR'}
+                    <i className="fa-solid fa-paper-plane" style={{ marginRight: '8px' }}></i> {submitLoading ? 'Memproses...' : editingDraftId ? 'Update & Buat QR' : 'Submit & Buat QR'}
                   </AppButton>
                 </div>
               </div>
@@ -2106,7 +2322,7 @@ const VendorDashboard = () => {
                           </span>
                         </div>
                         {!notif.sudah_dibaca && (
-                          <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#3b82f6', marginTop: '6px', flexShrink: 0 }}></div>
+                          <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#0a2f88', marginTop: '6px', flexShrink: 0 }}></div>
                         )}
                       </div>
                     )})
@@ -2327,7 +2543,7 @@ const VendorDashboard = () => {
                 </button>
               )}
               <button className="btn btn-outline" onClick={() => setReportModalData(null)}>Tutup</button>
-              <button className="btn btn-primary" onClick={() => openReportPdf(reportModalData)}>
+              <button className="btn btn-primary" onClick={() => openReportPdf(reportModalData, formatDateTime)}>
                 <i className="fa-solid fa-file-pdf"></i> Buka PDF
               </button>
             </div>
@@ -2338,15 +2554,42 @@ const VendorDashboard = () => {
       {/* QR Code Modal */}
       <BaseModalShell open={showQRModal} onClose={() => setShowQRModal(false)} panelClassName="vendor-qr-modal-shell">
         <div className="vendor-qr-modal">
+          {qrToast.open && (
+            <div className={`vendor-qr-toast vendor-qr-toast--${qrToast.type}`} role="status" aria-live="polite">
+              <i className={`fa-solid ${qrToast.type === 'success' ? 'fa-check' : 'fa-circle-info'}`}></i>
+              <span>{qrToast.message}</span>
+            </div>
+          )}
           <div className="vendor-qr-modal__header">
             <div>
               <p className="vendor-section-kicker">QR shipment</p>
               <h2>QR untuk shipment {selectedShipmentId || '-'}</h2>
               <p>Unduh QR per box untuk kebutuhan kirim dan verifikasi di gudang tujuan.</p>
             </div>
-            <button type="button" className="vendor-qr-modal__close" onClick={() => setShowQRModal(false)} aria-label="Tutup modal QR">
-              <i className="fa-solid fa-xmark"></i>
-            </button>
+            <div className="vendor-qr-modal__header-actions">
+              <AppButton
+                type="button"
+                variant="secondary"
+                className="vendor-qr-modal__bulk-btn"
+                disabled={qrLoading || qrPrintLoading || qrTokens.filter((token) => Boolean(token?.qr_token)).length === 0}
+                onClick={handlePrintAllQr}
+              >
+                <i className={`fa-solid ${qrPrintLoading ? 'fa-spinner fa-spin' : 'fa-print'}`}></i>
+                {qrPrintLoading ? 'Menyiapkan print...' : 'Print semua'}
+              </AppButton>
+              <AppButton
+                type="button"
+                className="vendor-qr-modal__bulk-btn"
+                disabled={qrLoading || qrBulkDownloadLoading || qrPrintLoading || qrTokens.filter((token) => Boolean(token?.qr_token)).length === 0}
+                onClick={handleDownloadAllQr}
+              >
+                <i className={`fa-solid ${qrBulkDownloadLoading ? 'fa-spinner fa-spin' : 'fa-file-zipper'}`}></i>
+                {qrBulkDownloadLoading ? 'Menyiapkan ZIP...' : 'Download semua'}
+              </AppButton>
+              <button type="button" className="vendor-qr-modal__close" onClick={() => setShowQRModal(false)} aria-label="Tutup modal QR">
+                <i className="fa-solid fa-xmark"></i>
+              </button>
+            </div>
           </div>
 
           <div className="vendor-qr-modal__summary">
@@ -2367,45 +2610,84 @@ const VendorDashboard = () => {
                 <p>Memuat QR dan token shipment...</p>
               </div>
             ) : qrTokens.length > 0 ? (
-              <div className="vendor-qr-grid">
-                {qrTokens.map((token, idx) => (
-                  <div key={idx} className="qr-token-card">
-                    <div className="qr-token-visual">
-                      <QRCodeSVG id={`qr-svg-${token.ID_outbound_detail || idx}`} value={token.qr_token || 'QR_TOKEN_NOT_AVAILABLE'} size={164} />
-                    </div>
-                    <div className="qr-token-meta">
-                      <div className="qr-token-product">{getQrProductName(token)}</div>
-                      <div className="qr-token-caption">
-                        <span>{token.box_code || (token.box_sequence ? `Box ${token.box_sequence}` : 'Box')}</span>
-                        <span>{`Qty ${token.expected_qty_in_box ?? '-'}`}</span>
+              <div className="vendor-qr-groups">
+                {groupedQrTokens.map((group) => (
+                  <section key={group.productName} className="vendor-qr-group">
+                    <div className="vendor-qr-group__header">
+                      <div>
+                        <h3>{group.productName}</h3>
+                        <p>{group.tokens.length} box siap dipakai untuk kirim dan verifikasi.</p>
+                      </div>
+                      <div className="vendor-qr-group__actions">
+                        <span className="vendor-qr-group__count">{group.tokens.length} box</span>
+                        <AppButton
+                          type="button"
+                          variant="secondary"
+                          className="vendor-qr-group__print-btn"
+                          disabled={qrLoading || qrPrintLoading || group.tokens.filter((token) => Boolean(token?.qr_token)).length === 0}
+                          onClick={() => {
+                            setQrPrintLoading(true);
+                            try {
+                              openQrPrintSheet([group], group.productName);
+                            } finally {
+                              setQrPrintLoading(false);
+                            }
+                          }}
+                        >
+                          <i className={`fa-solid ${qrPrintLoading ? 'fa-spinner fa-spin' : 'fa-print'}`}></i>
+                          Print produk
+                        </AppButton>
                       </div>
                     </div>
-                    <div className="qr-token-section">
-                      <div className="qr-token-label">QR token</div>
-                      <div className="qr-token-value">{token.qr_token || 'Token belum tersedia'}</div>
+
+                    <div className="vendor-qr-grid">
+                      {group.tokens.map((token) => (
+                        <div key={`${group.productName}-${getQrDomKey(token, token._qrIndex)}`} className="qr-token-card">
+                        <div className="qr-token-visual">
+                            <QRCodeSVG
+                              id={`qr-svg-${getQrDomKey(token, token._qrIndex)}`}
+                              value={token.qr_token || 'QR_TOKEN_NOT_AVAILABLE'}
+                              size={148}
+                            />
+                          </div>
+                          <div className="qr-token-meta">
+                            <div className="qr-token-product">{group.productName}</div>
+                            <div className="qr-token-caption">
+                              <span className="qr-token-box-pill">{token.box_code || (token.box_sequence ? `Box ${token.box_sequence}` : 'Box')}</span>
+                              <span>{`Qty ${token.expected_qty_in_box ?? '-'}`}</span>
+                            </div>
+                          </div>
+                          <div className="qr-token-section">
+                            <div className="qr-token-label">QR token</div>
+                            <div className="qr-token-value" title={token.qr_token || 'Token belum tersedia'}>
+                              {token.qr_token || 'Token belum tersedia'}
+                            </div>
+                          </div>
+                          <div className="qr-token-actions">
+                            <AppButton
+                              type="button"
+                              variant="secondary"
+                              className="qr-copy-btn"
+                              disabled={!token.qr_token}
+                              onClick={() => handleCopyQrToken(token.qr_token)}
+                            >
+                              <i className="fa-regular fa-copy"></i>
+                              Salin token
+                            </AppButton>
+                            <AppButton
+                              type="button"
+                              className="qr-copy-btn"
+                              disabled={!token.qr_token}
+                              onClick={() => handleDownloadQr(token, token._qrIndex)}
+                            >
+                              <i className="fa-solid fa-download"></i>
+                              Download QR
+                            </AppButton>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                    <div className="qr-token-actions">
-                      <AppButton
-                        type="button"
-                        variant="secondary"
-                        className="qr-copy-btn"
-                        disabled={!token.qr_token}
-                        onClick={() => handleCopyQrToken(token.qr_token)}
-                      >
-                        <i className="fa-regular fa-copy"></i>
-                        Copy token
-                      </AppButton>
-                      <AppButton
-                        type="button"
-                        className="qr-copy-btn"
-                        disabled={!token.qr_token}
-                        onClick={() => handleDownloadQr(token, idx)}
-                      >
-                        <i className="fa-solid fa-download"></i>
-                        Download QR
-                      </AppButton>
-                    </div>
-                  </div>
+                  </section>
                 ))}
               </div>
             ) : (
@@ -2496,6 +2778,42 @@ const VendorDashboard = () => {
                       )}
                     </tbody>
                   </table>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '20px' }}>
+                  {normalizeStatus(selectedShipmentDetails?.status) === 'draft' && (
+                    <AppButton
+                      type="button"
+                      variant="secondary"
+                      onClick={() => {
+                        setShowDetailsModal(false);
+                        handleEditDraft(selectedShipmentDetails);
+                      }}
+                    >
+                      Edit draft
+                    </AppButton>
+                  )}
+                  {selectedShipmentDetails?.ID_outbound && normalizeStatus(selectedShipmentDetails?.status) !== 'draft' && (
+                    <AppButton
+                      type="button"
+                      onClick={() => {
+                        const shipmentId = selectedShipmentDetails.ID_outbound;
+                        setShowDetailsModal(false);
+                        if (shipmentId) {
+                          handleViewQR(shipmentId);
+                        }
+                      }}
+                    >
+                      <i className="fa-solid fa-qrcode"></i> Lihat QR
+                    </AppButton>
+                  )}
+                  <AppButton
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setShowDetailsModal(false)}
+                  >
+                    Tutup
+                  </AppButton>
                 </div>
               </>
             )}

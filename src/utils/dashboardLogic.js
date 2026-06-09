@@ -1,9 +1,9 @@
 const SHIPPING_STATUSES = new Set(['submitted', 'in_transit']);
-const DELIVERED_STATUSES = new Set(['arrived', 'verified']);
+const DELIVERED_STATUSES = new Set(['arrived', 'verified', 'delivered']);
 
 const SHIPMENT_CHART_META = [
   { key: 'shipping', label: 'Shipping', color: '#0f766e' },
-  { key: 'delivered', label: 'Delivered', color: '#2563eb' },
+  { key: 'delivered', label: 'Delivered', color: '#0a2f88' },
   { key: 'discrepancy', label: 'Discrepancy', color: '#dc2626' },
   { key: 'draft', label: 'Draft', color: '#d97706' },
 ];
@@ -112,6 +112,8 @@ export const validateOutboundSchedule = (dispatchDate, expectedArrivalDate) => {
 
 export const canAccessQrForShipment = (shipment = {}) => {
   const qrReady = shipment?.qr_ready;
+  const readyQrCount = Number(shipment?.ready_qr ?? 0);
+  const totalQrCount = Number(shipment?.total_qr ?? 0);
 
   if (typeof qrReady === 'boolean') {
     return qrReady;
@@ -124,6 +126,10 @@ export const canAccessQrForShipment = (shipment = {}) => {
   if (typeof qrReady === 'string') {
     const normalizedFlag = normalizeStatus(qrReady);
     return normalizedFlag === '1' || normalizedFlag === 'true' || normalizedFlag === 'yes';
+  }
+
+  if (readyQrCount > 0 || totalQrCount > 0) {
+    return true;
   }
 
   return false;
@@ -329,9 +335,23 @@ export const buildManagerDashboardHeroMetrics = ({
   ];
 };
 
-export const buildRecentShipmentActivity = (shipments = [], limit = 5) => shipments
+const resolveShipmentTimestamp = (shipment = {}) => (
+  shipment.updated_at
+  || shipment.created_at
+  || shipment.waktu_kirim
+  || shipment.estimasi_tiba
+  || null
+);
+
+export const sortShipmentsByLatestDate = (shipments = []) => [...shipments].sort((left, right) => {
+  const leftTime = new Date(resolveShipmentTimestamp(left) || 0).getTime();
+  const rightTime = new Date(resolveShipmentTimestamp(right) || 0).getTime();
+  return rightTime - leftTime;
+});
+
+export const buildRecentShipmentActivity = (shipments = [], limit = 5) => sortShipmentsByLatestDate(shipments)
   .map((shipment) => {
-    const timestamp = shipment.updated_at || shipment.created_at || shipment.waktu_kirim || shipment.estimasi_tiba;
+    const timestamp = resolveShipmentTimestamp(shipment);
     return {
       shipmentId: shipment.ID_outbound,
       shipmentNumber: shipment.no_pengiriman || `SHP-${shipment.ID_outbound || '-'}`,
@@ -344,7 +364,6 @@ export const buildRecentShipmentActivity = (shipments = [], limit = 5) => shipme
     };
   })
   .filter((shipment) => shipment.timestamp)
-  .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
   .slice(0, limit);
 
 export const getUpcomingShipmentSchedule = (shipments = [], limit = 4) => shipments
@@ -426,8 +445,8 @@ export const buildTrendChartData = (trendByDate = []) => {
       {
         label: 'Total',
         data: sorted.map((row) => row.shipments_total),
-        borderColor: '#2563eb',
-        backgroundColor: 'rgba(37,99,235,0.1)',
+        borderColor: '#0a2f88',
+        backgroundColor: 'rgba(10,47,136,0.1)',
         tension: 0.3,
       },
       {

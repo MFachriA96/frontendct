@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 
 const Login = lazy(() => import('./pages/Login'));
 const VendorDashboard = lazy(() => import('./pages/VendorDashboard'));
+const VendorQrPrintPage = lazy(() => import('./pages/VendorQrPrintPage'));
 const ScanOfficerDashboard = lazy(() => import('./pages/ScanOfficerDashboard'));
 const ManagerDashboard = lazy(() => import('./pages/ManagerDashboard'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
@@ -28,6 +29,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/vendor-qr-print" element={<VendorQrPrintPage />} />
           <Route path="/vendor-dashboard/*" element={<VendorDashboard />} />
           <Route path="/scan-officer-dashboard/*" element={<ScanOfficerDashboard />} />
           <Route path="/manager-dashboard/*" element={<ManagerDashboard />} />

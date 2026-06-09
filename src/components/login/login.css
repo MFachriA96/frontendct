@@ -1,5 +1,5 @@
 .login-hero {
-  background: #0d55f2;
+  background: #0a2f88;
   color: #ffffff;
   display: flex;
   flex: 1 1 56%;
@@ -21,7 +21,7 @@
 
 .login-hero .brand-box {
   align-items: center;
-  background: #0d55f2;
+  background: var(--brand-navy);
   border-radius: 16px;
   color: #ffffff;
   display: flex;
@@ -122,7 +122,7 @@
 }
 
 .login-form-card__intro h2 {
-  color: #0d55f2;
+  color: var(--brand-navy);
   font-size: 2rem;
   font-weight: 800;
   letter-spacing: -0.05em;
@@ -176,7 +176,7 @@
 }
 
 .login-form__remember input {
-  accent-color: #1b5fff;
+  accent-color: var(--brand-navy);
   height: 16px;
   margin: 0;
   width: 16px;
@@ -223,7 +223,7 @@
 
   .login-form-card__mobile-brand .brand-box {
     align-items: center;
-    background: #0d55f2;
+    background: var(--brand-navy);
     border-radius: 18px;
     color: #ffffff;
     display: flex;
