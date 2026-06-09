@@ -1,8 +1,8 @@
 :root {
     /* Colors - Epson Standard Palette */
-    --primary: #003399; 
-    --primary-light: #3366cc;
-    --primary-dark: #001f5c;
+    --primary: #0a2f88; 
+    --primary-light: #3157b4;
+    --primary-dark: #08276f;
     --secondary: #f4f7fe;
     
     --success: #10b981;
@@ -11,8 +11,8 @@
     --warning-light: #fef3c7;
     --danger: #ef4444;
     --danger-light: #fee2e2;
-    --info: #3b82f6;
-    --info-light: #dbeafe;
+    --info: #0a2f88;
+    --info-light: #e9eefb;
 
     --text-main: #1e293b;
     --text-muted: #64748b;
@@ -389,7 +389,7 @@ body {
     border-radius: var(--radius-lg);
     background:
         radial-gradient(circle at top right, rgba(96, 165, 250, 0.25), transparent 32%),
-        linear-gradient(135deg, #0f3460 0%, #174a84 50%, #2c6cb0 100%);
+    linear-gradient(135deg, #0a2f88 0%, #173f9f 50%, #3157b4 100%);
     color: #f8fbff;
     box-shadow: var(--shadow-md);
 }
@@ -521,7 +521,7 @@ body {
 }
 
 .card-tabs--pill .tab-btn.active {
-    background: #0d55f2;
+    background: var(--primary);
     color: white;
 }
 
@@ -791,7 +791,7 @@ body {
 
 .manager-visual-kicker {
     display: inline-block;
-    color: #3b82f6;
+    color: var(--primary);
     font-size: 0.72rem;
     font-weight: 700;
     letter-spacing: 0.04em;
@@ -819,7 +819,7 @@ body {
     align-items: center;
     justify-content: center;
     background: rgba(255, 255, 255, 0.9);
-    color: #0d55f2;
+    color: var(--primary);
     font-size: 0.76rem;
 }
 
@@ -1282,7 +1282,7 @@ body {
 
 .manager-visual-card--vendor .vendor-performance-mini-item strong:last-child,
 .manager-visual-card--vendor .vendor-performance-mini-item > div:last-child strong {
-    color: #0d55f2;
+    color: var(--primary);
 }
 
 .manager-inline-link {
@@ -1290,7 +1290,7 @@ body {
     background: transparent;
     border: 0;
     padding: 0.2rem 0;
-    color: #0d55f2;
+    color: var(--primary);
     font-size: 0.8rem;
     font-weight: 600;
     cursor: pointer;

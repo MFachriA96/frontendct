@@ -97,7 +97,7 @@
 }
 
 .admin-quick-action i {
-  color: #0d55f2;
+  color: var(--brand-navy);
   font-size: 1.15rem;
 }
 
@@ -115,7 +115,7 @@
 .admin-link-action {
   background: transparent;
   border: none;
-  color: #0d55f2;
+  color: var(--brand-navy);
   cursor: pointer;
   font: inherit;
   font-size: 0.88rem;
@@ -194,9 +194,9 @@
 
 .admin-person__avatar {
   align-items: center;
-  background: #eef4ff;
+  background: var(--brand-navy-soft);
   border-radius: 50%;
-  color: #0d55f2;
+  color: var(--brand-navy);
   display: flex;
   font-size: 0.9rem;
   font-weight: 800;
@@ -235,7 +235,7 @@
 
 .admin-role--admin { background: #fff1f3; color: #c63756; }
 .admin-role--manager { background: #fff5df; color: #9b6200; }
-.admin-role--petugas { background: #eef4ff; color: #0d55f2; }
+.admin-role--petugas { background: var(--brand-navy-soft); color: var(--brand-navy); }
 .admin-role--vendor { background: #ecfbf6; color: #0f9b6c; }
 
 .admin-status {
@@ -261,7 +261,7 @@
   padding: 0 10px;
 }
 
-.admin-chip--blue { background: #eef4ff; color: #0d55f2; }
+.admin-chip--blue { background: var(--brand-navy-soft); color: var(--brand-navy); }
 .admin-chip--amber { background: #fff5df; color: #9b6200; }
 .admin-chip--green { background: #e9fbf1; color: #177245; }
 .admin-chip--slate { background: #eef2f8; color: #53637d; }
@@ -444,7 +444,7 @@
 }
 
 .admin-checkbox input {
-  accent-color: #0d55f2;
+  accent-color: var(--brand-navy);
 }
 
 .admin-modal__actions {

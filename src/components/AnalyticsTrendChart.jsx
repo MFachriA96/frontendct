@@ -13,7 +13,7 @@ echarts.use([LineChart, GridComponent, LegendComponent, TooltipComponent, SVGRen
 const toRgba = (hex, alpha) => {
   const normalized = String(hex || '').replace('#', '');
   if (normalized.length !== 6) {
-    return `rgba(59, 130, 246, ${alpha})`;
+    return `rgba(10, 47, 136, ${alpha})`;
   }
 
   const r = parseInt(normalized.slice(0, 2), 16);
@@ -36,14 +36,14 @@ const themeTokens = {
     muted: 'rgba(148, 163, 184, 0.9)',
     grid: 'rgba(148, 163, 184, 0.18)',
     tooltipBg: '#0f172a',
-    tooltipBorder: 'rgba(59, 130, 246, 0.28)',
+    tooltipBorder: 'rgba(10, 47, 136, 0.28)',
   },
   manager: {
     text: '#64748b',
     muted: '#94a3b8',
     grid: 'rgba(203, 213, 225, 0.46)',
     tooltipBg: '#ffffff',
-    tooltipBorder: 'rgba(59, 130, 246, 0.18)',
+    tooltipBorder: 'rgba(10, 47, 136, 0.18)',
   },
 };
 
@@ -89,7 +89,7 @@ const buildOption = (data, theme = 'light') => {
       axisPointer: {
         type: 'line',
         lineStyle: {
-          color: 'rgba(59, 130, 246, 0.28)',
+          color: 'rgba(10, 47, 136, 0.28)',
           width: 1.5,
         },
       },
@@ -125,7 +125,7 @@ const buildOption = (data, theme = 'light') => {
       },
     },
     series: datasets.map((dataset, index) => {
-      const color = dataset.borderColor || ['#2563eb', '#0f766e', '#dc2626'][index % 3];
+      const color = dataset.borderColor || ['#0a2f88', '#0f766e', '#dc2626'][index % 3];
       const isPrimary = index === 0;
 
       return {

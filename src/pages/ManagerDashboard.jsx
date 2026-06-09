@@ -16,6 +16,7 @@ import AppSkeleton from '../components/ui/AppSkeleton';
 import ConfirmModal from '../components/ui/ConfirmModal';
 import StatusModal from '../components/ui/StatusModal';
 import { buildWarehouseScopedParams } from '../utils/receivingWorkspace';
+import { openReportPdf } from '../utils/reportUtils';
 import './ManagerDashboard.css';
 
 const LazyAnalyticsTrendChart = lazy(() => import('../components/AnalyticsTrendChart'));
@@ -50,7 +51,6 @@ const ManagerTableSkeleton = ({ columns = 6, rows = 5 }) => (
 );
 
 const ManagerDashboard = () => {
-  const [, setActiveTab] = useState('overview');
   const [activeSidebar, setActiveSidebar] = useState('dashboard');
   const [shipmentStatusFilter, setShipmentStatusFilter] = useState('total');
   const [user] = useState(() => {
@@ -484,99 +484,17 @@ const ManagerDashboard = () => {
     URL.revokeObjectURL(url);
   };
 
-  const openReportPdf = (report) => {
-    if (!report) return;
-
-    const discrepancy = report.discrepancy || {};
-    const shipment = discrepancy.shipment || {};
-    const item = discrepancy.item || {};
-    const html = `
-      <!doctype html>
-      <html>
-        <head>
-          <title>${report.no_dokumen_r1 || 'Dokumen R1'}</title>
-          <style>
-            body { font-family: Arial, sans-serif; color: #1e293b; margin: 32px; }
-            .header { border-bottom: 3px solid #003399; padding-bottom: 18px; margin-bottom: 24px; }
-            h1 { margin: 0 0 8px; color: #003399; }
-            .muted { color: #64748b; }
-            .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 20px 0; }
-            .box { border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px; }
-            .label { display: block; color: #64748b; font-size: 12px; text-transform: uppercase; font-weight: 700; margin-bottom: 6px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 18px; }
-            th, td { border: 1px solid #cbd5e1; padding: 10px; text-align: left; }
-            th { background: #f8fafc; color: #475569; font-size: 12px; text-transform: uppercase; }
-            .danger { color: #dc2626; font-weight: 700; }
-            .notes { white-space: pre-wrap; line-height: 1.5; }
-            .footer { margin-top: 36px; color: #64748b; font-size: 12px; }
-            @media print { button { display: none; } body { margin: 20px; } }
-          </style>
-        </head>
-        <body>
-          <button onclick="window.print()" style="float:right;padding:10px 14px;background:#003399;color:#fff;border:0;border-radius:6px;">Print / Save PDF</button>
-          <div class="header">
-            <h1>Dokumen R1 Tindak Lanjut</h1>
-            <div class="muted">${report.no_dokumen_r1 || '-'} • Status: ${(report.status_dokumen || '-').replaceAll('_', ' ')}</div>
-          </div>
-          <div class="grid">
-            <div class="box"><span class="label">Vendor</span><strong>${shipment.vendor?.nama_vendor || '-'}</strong></div>
-            <div class="box"><span class="label">Shipment</span><strong>${shipment.no_pengiriman || `SHP-${shipment.ID_outbound || '-'}`}</strong></div>
-            <div class="box"><span class="label">Asal</span><strong>${shipment.lokasi_asal || '-'}</strong></div>
-            <div class="box"><span class="label">Waktu Kirim</span><strong>${formatDateTime(shipment.waktu_kirim)}</strong></div>
-          </div>
-          <table>
-            <thead>
-              <tr><th>Produk</th><th>Ekspektasi</th><th>Diterima</th><th>Selisih</th><th>Status</th></tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>${item.nama_barang || '-'}</td>
-                <td>${discrepancy.quantity_outbound ?? '-'}</td>
-                <td>${discrepancy.quantity_inbound ?? '-'}</td>
-                <td class="danger">${discrepancy.selisih ?? '-'}</td>
-                <td>${discrepancy.status || '-'}</td>
-              </tr>
-            </tbody>
-          </table>
-          <h2>Instruksi Manager</h2>
-          <div class="box notes">${report.keterangan || '-'}</div>
-          <div class="footer">Dibuat oleh Epson Verification System pada ${formatDateTime(report.dibuat_at || new Date())}</div>
-        </body>
-      </html>
-    `;
-
-    const reportBlob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    const reportUrl = URL.createObjectURL(reportBlob);
-    const reportWindow = window.open(reportUrl, '_blank');
-
-    if (!reportWindow) {
-      const link = document.createElement('a');
-      link.href = reportUrl;
-      link.download = `${report.no_dokumen_r1 || 'mismatch-report'}.html`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    }
-
-    window.setTimeout(() => URL.revokeObjectURL(reportUrl), 60000);
-  };
-
   const openSidebarSection = (section) => {
     setActiveSidebar(section);
-    if (section === 'dashboard') {
-      setActiveTab('overview');
-    }
   };
 
   const openDiscrepancyReview = () => {
-    setActiveSidebar('discrepancy-review');
-    setActiveTab('pending');
+    openSidebarSection('discrepancy-review');
   };
 
   const openManagerShipmentFilter = (filter) => {
     setShipmentStatusFilter(filter);
-    setActiveSidebar('shipments');
-    setActiveTab('overview');
+    openSidebarSection('shipments');
   };
 
   const openManagerPrimaryCard = (card) => {
@@ -659,7 +577,7 @@ const ManagerDashboard = () => {
               <span>{new Date().toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
             </div>
             <div className="user-profile manager-user-chip">
-              <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: '#003399', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
+              <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: '#0a2f88', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
                 {user ? user.nama?.charAt(0).toUpperCase() : 'M'}
               </div>
               <div className="user-info">
@@ -833,7 +751,7 @@ const ManagerDashboard = () => {
                   ) : pendingReviewQueue.length > 0 ? (
                     <div className="vendor-performance-mini-list manager-priority-list">
                       {pendingReviewQueue.slice(0, 3).map((item) => (
-                        <button key={item.ID_discrepancy} type="button" className="vendor-performance-mini-item manager-priority-item" onClick={() => setActiveTab('pending')}>
+                        <button key={item.ID_discrepancy} type="button" className="vendor-performance-mini-item manager-priority-item" onClick={openDiscrepancyReview}>
                           <div className="manager-priority-copy">
                             <strong>{item.outbound_detail?.outbound?.vendor?.nama_vendor || `Vendor ${item.ID_vendor || '-'}`}</strong>
                             <span>{item.outbound_detail?.barang?.nama_barang || `Outbound Detail ${item.ID_outbound_detail || '-'}`}</span>
@@ -846,7 +764,7 @@ const ManagerDashboard = () => {
                         </button>
                       ))}
                       {pendingReviewQueue.length > 3 && (
-                        <button type="button" className="manager-inline-link" onClick={() => setActiveTab('pending')}>
+                        <button type="button" className="manager-inline-link" onClick={openDiscrepancyReview}>
                           Lihat {pendingReviewQueue.length - 3} kasus lain
                         </button>
                       )}
@@ -944,28 +862,13 @@ const ManagerDashboard = () => {
           )}
  
           {activeSidebar === 'shipments' && (
-
-
             <>
-
-
               <div className="page-header">
-
-
                 <div>
-
-
-                  <h1>Shipments</h1>
-
-
-                  <p className="subtitle">Monitor vendor outbound shipments and inspect shipment contents.</p>
-
-
+                  <h1>Pengiriman</h1>
+                  <p className="subtitle">Pantau seluruh shipment outbound dari vendor dan periksa isinya.</p>
                 </div>
-
-
               </div>
-
 
               {showManagerShipmentsSkeleton ? (
                 <div className="manager-section-grid">
@@ -979,11 +882,11 @@ const ManagerDashboard = () => {
               ) : (
                 <div className="manager-section-grid">
                   <div className="section-summary-card">
-                    <span>Total Shipments</span>
+                    <span>Total Shipment</span>
                     <strong>{shipmentCounts.total}</strong>
                   </div>
                   <div className="section-summary-card">
-                    <span>Shipping</span>
+                    <span>Sedang Dikirim</span>
                     <strong>{shipmentCounts.shipping}</strong>
                   </div>
                   <div className="section-summary-card">
@@ -993,82 +896,32 @@ const ManagerDashboard = () => {
                 </div>
               )}
 
-
               <div className="card data-card mt-4">
-
-
                 <div className="section-card-header">
-
-
                   <div>
-
-
-                    <h2>Shipment Directory</h2>
-
-
-                    <p>Use Details to inspect vendor, schedule, origin, and item quantities.</p>
-
-
+                    <h2>Daftar Shipment</h2>
+                    <p>Gunakan tombol Detail untuk memeriksa vendor, jadwal, asal, dan kuantitas item.</p>
                   </div>
-
-
                   <select className="form-control filter-select" value={shipmentStatusFilter} onChange={(e) => setShipmentStatusFilter(e.target.value)}>
-
-
-                    <option value="total">All Shipments</option>
-
-
-                    <option value="shipping">Shipping</option>
-
-
-                    <option value="delivered">Delivered</option>
-
-
+                    <option value="total">Semua Shipment</option>
+                    <option value="shipping">Sedang Dikirim</option>
+                    <option value="delivered">Sudah Diterima</option>
                     <option value="discrepancy">Discrepancy</option>
-
-
                   </select>
-
-
                 </div>
 
-
                 <div className="table-responsive">
-
-
                   <table className="data-table">
-
-
                     <thead>
-
-
                       <tr>
-
-
                         <th>Shipment</th>
-
-
                         <th>Vendor</th>
-
-
-                        <th>Origin</th>
-
-
-                        <th>Dispatch</th>
-
-
+                        <th>Asal</th>
+                        <th>Waktu Kirim</th>
                         <th>Status</th>
-
-
-                        <th>Action</th>
-
-
+                        <th>Aksi</th>
                       </tr>
-
-
                     </thead>
-
-
                     {showManagerShipmentsSkeleton ? (
                       <ManagerTableSkeleton columns={6} rows={6} />
                     ) : (
@@ -1080,28 +933,18 @@ const ManagerDashboard = () => {
                             <td>{shp.lokasi_asal || '-'}</td>
                             <td className="text-muted">{formatDateTime(shp.waktu_kirim)}</td>
                             <td>{getStatusBadge(shp.status)}</td>
-                            <td><button className="btn btn-sm btn-outline" onClick={() => handleViewShipmentDetails(shp)}>Details</button></td>
+                            <td><button className="btn btn-sm btn-outline" onClick={() => handleViewShipmentDetails(shp)}>Detail</button></td>
                           </tr>
                         ))}
                         {!dashboardLoading && filteredShipments.length === 0 && (
-                          <tr><td colSpan="6" className="text-center" style={{ padding: '32px' }}>No shipments found for this status.</td></tr>
+                          <tr><td colSpan="6" className="text-center" style={{ padding: '32px' }}>Tidak ada shipment untuk status ini.</td></tr>
                         )}
                       </tbody>
                     )}
-
-
                   </table>
-
-
                 </div>
-
-
               </div>
-
-
             </>
-
-
           )}
 
 
@@ -1109,173 +952,63 @@ const ManagerDashboard = () => {
 
 
           {activeSidebar === 'verification-results' && (
-
-
             <>
-
-
               <div className="page-header">
-
-
                 <div>
-
-
-                  <h1>Verification Results</h1>
-
-
-                  <p className="subtitle">Review inbound verification outcomes from scan officer manual checks.</p>
-
-
+                  <h1>Hasil Verifikasi</h1>
+                  <p className="subtitle">Tinjau hasil verifikasi penerimaan barang dari petugas scan.</p>
                 </div>
-
-
               </div>
-
 
               <div className="manager-section-grid">
-
-
                 <div className="section-summary-card">
-
-
-                  <span>Matched</span>
-
-
+                  <span>Sesuai</span>
                   <strong>{discrepancyStatusCounts.match || 0}</strong>
-
-
                 </div>
-
-
                 <div className="section-summary-card">
-
-
-                  <span>Mismatched</span>
-
-
+                  <span>Tidak Sesuai</span>
                   <strong>{discrepancyStatusCounts.mismatch || 0}</strong>
-
-
                 </div>
-
-
                 <div className="section-summary-card">
-
-
                   <span>Missing / Over</span>
-
-
                   <strong>{(discrepancyStatusCounts.missing || 0) + (discrepancyStatusCounts.over || 0)}</strong>
-
-
                 </div>
-
-
               </div>
-
 
               <div className="verification-results-grid mt-4">
-
-
                 {discrepancies.map(disc => (
-
-
                   <div className="verification-card" key={disc.ID_discrepancy}>
-
-
                     <div className="verification-card-top">
-
-
                       <div>
-
-
                         <strong>{disc.outbound_detail?.barang?.nama_barang || `Outbound Detail ${disc.ID_outbound_detail}`}</strong>
-
-
                         <span>DISC-{disc.ID_discrepancy}</span>
-
-
                       </div>
-
-
                       <span className={`status-badge ${disc.status === 'match' ? 'status-success' : 'status-danger'}`}>
-
-
                         {disc.status}
-
-
                       </span>
-
-
                     </div>
-
-
                     <div className="verification-metrics">
-
-
-                      <div><span>Expected</span><strong>{disc.quantity_outbound ?? '-'}</strong></div>
-
-
-                      <div><span>Received</span><strong>{disc.quantity_inbound ?? '-'}</strong></div>
-
-
-                      <div><span>Difference</span><strong>{disc.selisih ?? '-'}</strong></div>
-
-
+                      <div><span>Ekspektasi</span><strong>{disc.quantity_outbound ?? '-'}</strong></div>
+                      <div><span>Diterima</span><strong>{disc.quantity_inbound ?? '-'}</strong></div>
+                      <div><span>Selisih</span><strong>{disc.selisih ?? '-'}</strong></div>
                     </div>
-
-
                     <div className="verification-footer">
-
-
                       <span>{formatDateTime(disc.created_at)}</span>
-
-
                       {disc.status !== 'match' && (
-
-
-                        <button className="btn btn-sm btn-primary" onClick={() => setResolveModalData(disc)}>Resolve</button>
-
-
+                        <button className="btn btn-sm btn-primary" onClick={() => setResolveModalData(disc)}>Tinjau</button>
                       )}
-
-
                     </div>
-
-
                   </div>
-
-
                 ))}
-
-
                 {discrepancies.length === 0 && (
-
-
                   <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
-
-
                     <i className="fa-solid fa-clipboard-check text-muted"></i>
-
-
-                    <h3>No verification results yet</h3>
-
-
-                    <p>Results will appear after scan officers complete manual verification.</p>
-
-
+                    <h3>Belum ada hasil verifikasi</h3>
+                    <p>Hasil akan muncul setelah petugas scan menyelesaikan verifikasi penerimaan barang.</p>
                   </div>
-
-
                 )}
-
-
               </div>
-
-
             </>
-
-
           )}
 
 
@@ -1283,173 +1016,62 @@ const ManagerDashboard = () => {
 
 
           {activeSidebar === 'discrepancy-review' && (
-
-
             <>
-
-
               <div className="page-header">
-
-
                 <div>
-
-
-                  <h1>Discrepancy Review</h1>
-
-
-                  <p className="subtitle">Prioritize unresolved mismatches and generate the right vendor follow-up action.</p>
-
-
+                  <h1>Tinjau Selisih</h1>
+                  <p className="subtitle">Prioritaskan ketidaksesuaian yang belum terselesaikan dan tentukan tindak lanjut ke vendor.</p>
                 </div>
-
-
               </div>
-
 
               <div className="review-grid standalone-review-grid">
-
-
                 {pendingDiscrepancies.map(disc => (
-
-
                   <div className="review-card" key={disc.ID_discrepancy}>
-
-
                     <div className="review-card-header bg-danger-light border-danger">
-
-
                       <div className="review-title">
-
-
                         <i className="fa-solid fa-triangle-exclamation text-danger"></i>
-
-
-                        <span style={{ textTransform: 'capitalize' }}>{disc.status} Item Discrepancy</span>
-
-
+                        <span style={{ textTransform: 'capitalize' }}>Discrepancy {disc.status}</span>
                       </div>
-
-
                       <span className="review-time">{formatDateTime(disc.created_at)}</span>
-
-
                     </div>
-
-
                     <div className="review-card-body">
-
-
                       <div className="review-detail-row">
-
-
-                        <span className="label">Item Name</span>
-
-
-                        <span className="value">{disc.outbound_detail?.barang?.nama_barang || 'Unknown'}</span>
-
-
+                        <span className="label">Nama Item</span>
+                        <span className="value">{disc.outbound_detail?.barang?.nama_barang || 'Tidak diketahui'}</span>
                       </div>
-
-
                       <div className="review-detail-row">
-
-
                         <span className="label">Outbound Detail</span>
-
-
                         <span className="value font-medium">#{disc.ID_outbound_detail}</span>
-
-
                       </div>
-
-
                       <div className="issue-numbers">
-
-
                         <div className="num-box">
-
-
-                          <span className="num-label">Expected</span>
-
-
+                          <span className="num-label">Ekspektasi</span>
                           <span className="num-val">{disc.quantity_outbound}</span>
-
-
                         </div>
-
-
                         <div className="num-box error">
-
-
-                          <span className="num-label">Scanned</span>
-
-
+                          <span className="num-label">Diterima</span>
                           <span className="num-val">{disc.quantity_inbound}</span>
-
-
                         </div>
-
-
                         <div className="num-box result">
-
-
-                          <span className="num-label">Difference</span>
-
-
+                          <span className="num-label">Selisih</span>
                           <span className="num-val">{disc.selisih}</span>
-
-
                         </div>
-
-
                       </div>
-
-
                       <button className="btn btn-primary btn-block mt-3" onClick={() => setResolveModalData(disc)}>
-
-
-                        <i className="fa-solid fa-file-contract"></i> Resolve Mismatch
-
-
+                        <i className="fa-solid fa-file-contract"></i> Selesaikan Selisih
                       </button>
-
-
                     </div>
-
-
                   </div>
-
-
                 ))}
-
-
                 {pendingDiscrepancies.length === 0 && (
-
-
                   <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
-
-
                     <i className="fa-solid fa-circle-check text-success"></i>
-
-
-                    <h3>No Open Discrepancies</h3>
-
-
-                    <p>All verification issues are currently resolved.</p>
-
-
+                    <h3>Tidak Ada Selisih Terbuka</h3>
+                    <p>Semua ketidaksesuaian sudah diselesaikan.</p>
                   </div>
-
-
                 )}
-
-
               </div>
-
-
             </>
-
-
           )}
 
 
@@ -1668,7 +1290,7 @@ const ManagerDashboard = () => {
                 </button>
               )}
               <button className="btn btn-outline" onClick={() => setReportModalData(null)}>Tutup</button>
-              <button className="btn btn-primary" onClick={() => openReportPdf(reportModalData)}>
+              <button className="btn btn-primary" onClick={() => openReportPdf(reportModalData, formatDateTime)}>
                 <i className="fa-solid fa-file-pdf"></i> Buka PDF
               </button>
             </div>

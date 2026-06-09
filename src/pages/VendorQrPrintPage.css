@@ -1,0 +1,201 @@
+.vendor-qr-print-page {
+  min-height: 100vh;
+  padding: 24px;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.vendor-qr-print-page--empty {
+  display: grid;
+  place-items: center;
+}
+
+.vendor-qr-print-empty {
+  max-width: 460px;
+  text-align: center;
+}
+
+.vendor-qr-print-empty h1 {
+  margin: 0 0 10px;
+  font-size: 1.75rem;
+}
+
+.vendor-qr-print-empty p {
+  margin: 0;
+  color: #475569;
+  line-height: 1.55;
+}
+
+.vendor-qr-print-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 18px;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 2px solid #dbe3ec;
+}
+
+.vendor-qr-print-header h1 {
+  margin: 0 0 6px;
+  font-size: 1.75rem;
+}
+
+.vendor-qr-print-header p {
+  margin: 0;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.vendor-qr-print-meta {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.vendor-qr-print-button {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: #0a2f88;
+  color: #ffffff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.vendor-qr-print-groups {
+  display: grid;
+  gap: 26px;
+}
+
+.vendor-qr-print-group {
+  break-inside: avoid;
+}
+
+.vendor-qr-print-group__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.vendor-qr-print-group__head h2 {
+  margin: 0 0 4px;
+  font-size: 1.15rem;
+}
+
+.vendor-qr-print-group__head p {
+  margin: 0;
+  color: #475569;
+  font-size: 0.85rem;
+}
+
+.vendor-qr-print-group__head span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #0a2f88;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.vendor-qr-print-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.vendor-qr-print-card {
+  border: 1px solid #dbe3ec;
+  border-radius: 14px;
+  padding: 16px;
+  break-inside: avoid;
+}
+
+.vendor-qr-print-card__qr {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 10px;
+  margin-bottom: 14px;
+  background: #ffffff;
+  border-radius: 12px;
+}
+
+.vendor-qr-print-card__qr svg {
+  width: 170px;
+  height: 170px;
+}
+
+.vendor-qr-print-card__fallback {
+  min-height: 170px;
+  display: grid;
+  place-items: center;
+  color: #64748b;
+  font-size: 0.75rem;
+}
+
+.vendor-qr-print-card__product {
+  text-align: center;
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.35;
+  margin-bottom: 8px;
+}
+
+.vendor-qr-print-card__box {
+  text-align: center;
+  font-size: 0.96rem;
+  font-weight: 700;
+  color: #0a2f88;
+  margin-bottom: 4px;
+}
+
+.vendor-qr-print-card__qty {
+  text-align: center;
+  font-size: 0.85rem;
+  color: #475569;
+  margin-bottom: 12px;
+}
+
+.vendor-qr-print-card__token-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #64748b;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+
+.vendor-qr-print-card__token {
+  font-family: "Courier New", monospace;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: #0f172a;
+  border: 1px solid #dbe3ec;
+  border-radius: 10px;
+  padding: 10px 12px;
+  overflow-wrap: anywhere;
+}
+
+@media print {
+  .vendor-qr-print-page {
+    padding: 0;
+  }
+
+  .vendor-qr-print-button {
+    display: none;
+  }
+}
+
+@page {
+  size: A4 portrait;
+  margin: 12mm;
+}

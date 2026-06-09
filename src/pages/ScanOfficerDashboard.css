@@ -78,7 +78,7 @@
   background: #eef4ff;
   border: none;
   border-radius: 14px;
-  color: #0d55f2;
+  color: var(--brand-navy);
   cursor: pointer;
   display: inline-flex;
   font: inherit;
@@ -156,7 +156,7 @@
 }
 
 .receiving-fullscan__icon-btn.is-active {
-  background: rgba(13, 85, 242, 0.86);
+  background: rgba(var(--brand-navy-rgb), 0.86);
 }
 
 .receiving-fullscan__scope {
@@ -376,9 +376,9 @@
 
 .receiving-sheet__loading-icon {
   align-items: center;
-  background: #eaf1ff;
+  background: var(--brand-navy-soft);
   border-radius: 999px;
-  color: #0d55f2;
+  color: var(--brand-navy);
   display: flex;
   font-size: 1rem;
   height: 38px;
@@ -584,7 +584,7 @@
 
 .receiving-toggle button.is-active {
   background: #ffffff;
-  color: #0d55f2;
+  color: var(--brand-navy);
 }
 
 .receiving-field-group {
@@ -710,7 +710,7 @@
 .scanner-box::after,
 .scanner-box > div::before,
 .scanner-box > div::after {
-  border-color: #3be08b;
+  border-color: var(--brand-navy-soft-2);
   border-style: solid;
   content: '';
   height: 22px;
@@ -723,8 +723,8 @@
 
 .scanner-line {
   animation: scan 2s infinite linear;
-  background: #3be08b;
-  box-shadow: 0 0 8px #3be08b;
+  background: var(--brand-navy-soft-2);
+  box-shadow: 0 0 8px var(--brand-navy-soft-2);
   height: 2px;
   position: absolute;
   top: 50%;
@@ -753,7 +753,7 @@
 
 .camera-success-overlay {
   align-items: center;
-  background: rgba(6, 95, 70, 0.84);
+  background: rgba(var(--brand-navy-rgb), 0.88);
   color: #ecfdf5;
   display: flex;
   flex-direction: column;
@@ -808,7 +808,7 @@
   align-items: center;
   background: #ffffff;
   border-radius: 999px;
-  color: #10b981;
+  color: var(--brand-navy);
   display: flex;
   font-size: 1.7rem;
   height: 56px;

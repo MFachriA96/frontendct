@@ -209,12 +209,13 @@ describe('getShipmentStatusCounts', () => {
       { status: 'in_transit', has_discrepancy: false },
       { status: 'arrived', has_discrepancy: true },
       { status: 'verified', has_discrepancy: false },
+      { status: 'delivered', has_discrepancy: false },
     ];
 
     assert.deepEqual(getShipmentStatusCounts(shipments), {
-      total: 5,
+      total: 6,
       shipping: 2,
-      delivered: 2,
+      delivered: 3,
       discrepancy: 2,
       draft: 1,
     });
@@ -245,6 +246,12 @@ describe('canAccessQrForShipment', () => {
   it('blocks QR access when backend has not marked the shipment as ready', () => {
     assert.equal(canAccessQrForShipment({ status: 'submitted', qr_ready: false }), false);
     assert.equal(canAccessQrForShipment({ status: 'draft', qr_ready: false }), false);
+    assert.equal(canAccessQrForShipment({ status: 'submitted', ID_outbound: 10 }), false);
+  });
+
+  it('allows QR access when backend exposes QR counts even without boolean flag', () => {
+    assert.equal(canAccessQrForShipment({ status: 'submitted', ready_qr: 2 }), true);
+    assert.equal(canAccessQrForShipment({ status: 'verified', total_qr: 4 }), true);
   });
 });
 
@@ -258,7 +265,7 @@ describe('buildShipmentChartSegments', () => {
 
     assert.deepEqual(segments, [
       { key: 'shipping', label: 'Shipping', value: 1, color: '#0f766e' },
-      { key: 'delivered', label: 'Delivered', value: 1, color: '#2563eb' },
+      { key: 'delivered', label: 'Delivered', value: 1, color: '#0a2f88' },
       { key: 'discrepancy', label: 'Discrepancy', value: 1, color: '#dc2626' },
       { key: 'draft', label: 'Draft', value: 1, color: '#d97706' },
     ]);
