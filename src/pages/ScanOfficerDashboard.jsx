@@ -43,6 +43,40 @@ const getStatusTone = (value) => {
   return 'neutral';
 };
 
+const getQueueShipmentProgress = (shipment) => {
+  const fromDetails = buildReceivingProgress(shipment);
+  if (fromDetails.totalBoxes > 0) {
+    return fromDetails;
+  }
+
+  const scannedBoxes = Number(
+    shipment?.total_qr_sudah_discan
+    ?? shipment?.total_box_sudah_discan
+    ?? shipment?.scanned_boxes
+    ?? 0
+  );
+  const totalBoxes = Number(
+    shipment?.total_qr_expected
+    ?? shipment?.total_box_expected
+    ?? shipment?.total_boxes
+    ?? shipment?.ready_qr
+    ?? shipment?.total_qr
+    ?? 0
+  );
+  const issueBoxes = Number(shipment?.issue_boxes ?? shipment?.total_issue_boxes ?? 0);
+  const verifiedBoxes = Number(shipment?.verified_boxes ?? scannedBoxes);
+  const pendingBoxes = Math.max(totalBoxes - scannedBoxes, 0);
+
+  return {
+    totalBoxes,
+    scannedBoxes,
+    verifiedBoxes,
+    issueBoxes,
+    pendingBoxes,
+    progressPercent: totalBoxes > 0 ? Math.min(100, Math.round((scannedBoxes / totalBoxes) * 100)) : 0,
+  };
+};
+
 const navItems = [
   { value: 'queue', label: 'Antrian', icon: 'fa-solid fa-list-check' },
   { value: 'receive', label: 'Scan', icon: 'fa-solid fa-qrcode' },
@@ -60,7 +94,7 @@ const scannerFaqItems = [
   },
   {
     question: 'Apa yang dilakukan setelah QR terbaca?',
-    answer: 'Sistem akan membuka box yang aktif. Petugas lalu memeriksa quantity aktual, memilih kondisi box, lalu menyimpan verifikasi.',
+    answer: 'Sistem akan membuka box yang aktif. Petugas lalu memeriksa quantity aktual, menambahkan catatan bila perlu, lalu menyimpan verifikasi.',
   },
   {
     question: 'Kalau ada selisih bagaimana?',
@@ -93,9 +127,9 @@ const ScanOfficerDashboard = () => {
   const [activeBox, setActiveBox] = useState(null);
   const [verificationForm, setVerificationForm] = useState({
     actualQty: '',
-    conditionStatus: 'normal',
     notes: '',
   });
+  const [lastVerifiedBoxCode, setLastVerifiedBoxCode] = useState('');
   const [scanMethod, setScanMethod] = useState('manual');
   const [qrToken, setQrToken] = useState('');
   const [idGudang] = useState(() => getAssignedWarehouseId(user, ''));
@@ -111,6 +145,7 @@ const ScanOfficerDashboard = () => {
 
   const navigate = useNavigate();
   const videoRef = useRef(null);
+  const manualTokenInputRef = useRef(null);
   const streamRef = useRef(null);
   const scanLoopRef = useRef(null);
   const detectorRef = useRef(null);
@@ -216,7 +251,6 @@ const ScanOfficerDashboard = () => {
     setActiveBox(null);
     setVerificationForm({
       actualQty: '',
-      conditionStatus: 'normal',
       notes: '',
     });
   }, []);
@@ -234,16 +268,19 @@ const ScanOfficerDashboard = () => {
     }
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    navigate('/login');
+    navigate('/login', { replace: true });
   };
 
   const handleSelectShipment = async (shipment) => {
     resetVerificationState();
+    setLastVerifiedBoxCode('');
     setScanFeedback(null);
     setScanMethod('camera');
     setSheetExpanded(false);
-    await loadShipmentContext(shipment.ID_outbound);
-    setActiveTab('receive');
+    const nextShipment = await loadShipmentContext(shipment.ID_outbound);
+    if (nextShipment) {
+      setActiveTab('receive');
+    }
   };
 
   const handleTabChange = (nextTab) => {
@@ -262,6 +299,7 @@ const ScanOfficerDashboard = () => {
     setLoading(true);
     setScanResolving(true);
     setScanFeedback(null);
+    setLastVerifiedBoxCode('');
     try {
       const token = localStorage.getItem('token');
       const payload = {
@@ -279,7 +317,6 @@ const ScanOfficerDashboard = () => {
       setActiveBox(result.box || null);
       setVerificationForm({
         actualQty: result.box?.expected_qty_in_box ?? '',
-        conditionStatus: 'normal',
         notes: '',
       });
       setSheetExpanded(true);
@@ -478,6 +515,15 @@ const ScanOfficerDashboard = () => {
   const handleVerifyBox = async () => {
     if (!activeInbound?.ID_inbound || !activeBox?.ID_outbound_box) return;
 
+    const normalizedActualQty = Number(verificationForm.actualQty);
+    if (!Number.isFinite(normalizedActualQty) || normalizedActualQty < 0) {
+      setScanFeedback({
+        type: 'error',
+        message: 'Quantity aktual harus berupa angka 0 atau lebih besar.',
+      });
+      return;
+    }
+
     setLoading(true);
     setVerifyLoading(true);
     try {
@@ -486,7 +532,7 @@ const ScanOfficerDashboard = () => {
         inboundId: activeInbound.ID_inbound,
         boxId: activeBox.ID_outbound_box,
         actualQty: verificationForm.actualQty,
-        conditionStatus: verificationForm.conditionStatus,
+        conditionStatus: 'normal',
         notes: verificationForm.notes,
       });
       const response = await axios.post(`${API_BASE_URL}/api/receiving/verify-box`, payload, {
@@ -494,17 +540,27 @@ const ScanOfficerDashboard = () => {
       });
 
       const result = response.data?.data || {};
+      const verifiedBoxCode = activeBox.box_code;
+      const updatedShipment = await loadShipmentContext(activeShipment?.ID_outbound);
+      const updatedProgress = buildReceivingProgress(updatedShipment);
+      const pendingBoxes = updatedProgress.pendingBoxes;
+
       setScanFeedback({
         type: 'success',
-        message: `Verifikasi ${activeBox.box_code} tersimpan. Hasil: ${formatStatusLabel(result.verification_status, 'tersimpan')}.`,
+        message: pendingBoxes > 0
+          ? `Box ${verifiedBoxCode} tersimpan. Lanjut scan box berikutnya.`
+          : `Box ${verifiedBoxCode} tersimpan. Semua box pada shipment ini sudah diverifikasi.`,
       });
-      await Promise.all([
-        loadShipmentContext(activeShipment?.ID_outbound),
-        fetchQueue(),
-        fetchHistory(),
-      ]);
+      await Promise.all([fetchQueue(), fetchHistory()]);
       resetVerificationState();
+      setLastVerifiedBoxCode(verifiedBoxCode);
       setQrToken('');
+      setSheetExpanded(true);
+      if (scanMethod === 'manual') {
+        window.requestAnimationFrame(() => {
+          manualTokenInputRef.current?.focus();
+        });
+      }
     } catch (error) {
       setScanFeedback({
         type: 'error',
@@ -539,6 +595,7 @@ const ScanOfficerDashboard = () => {
       setActiveShipment(null);
       setActiveInbound(null);
       resetVerificationState();
+      setLastVerifiedBoxCode('');
       setActiveTab('history');
     } catch (error) {
       setScanFeedback({
@@ -674,29 +731,44 @@ const ScanOfficerDashboard = () => {
           />
         ) : (
           <div className="receiving-list">
-            {queueShipments.map((shipment) => (
-              <article className="receiving-item" key={shipment.ID_outbound}>
-                <div className="receiving-item__body">
-                  <div className="receiving-item__top">
-                    <div>
-                      <strong>{shipment.no_pengiriman || `SHP-${shipment.ID_outbound}`}</strong>
-                      <p>{shipment.vendor?.nama_vendor || `Vendor ${shipment.ID_vendor || '-'}`}</p>
+            {queueShipments.map((shipment) => {
+              const queueProgress = getQueueShipmentProgress(shipment);
+              const isActiveShipment = activeShipment?.ID_outbound === shipment.ID_outbound;
+              const progressLabel = queueProgress.totalBoxes > 0
+                ? `${queueProgress.scannedBoxes} dari ${queueProgress.totalBoxes} box diproses`
+                : 'Progress box akan muncul setelah shipment dibuka';
+
+              return (
+                <article className={`receiving-item ${isActiveShipment ? 'receiving-item--active-session' : ''}`} key={shipment.ID_outbound}>
+                  <div className="receiving-item__body">
+                    <div className="receiving-item__top">
+                      <div>
+                        <strong>{shipment.no_pengiriman || `SHP-${shipment.ID_outbound}`}</strong>
+                        <p>{shipment.vendor?.nama_vendor || `Vendor ${shipment.ID_vendor || '-'}`}</p>
+                      </div>
+                      <StatusBadge
+                        label={formatStatusLabel(shipment.status, 'submitted')}
+                        tone={getStatusTone(shipment.status)}
+                      />
                     </div>
-                    <StatusBadge
-                      label={formatStatusLabel(shipment.status, 'submitted')}
-                      tone={getStatusTone(shipment.status)}
-                    />
+                    <div className="receiving-item__meta">
+                      <span>{formatDateTime(shipment.waktu_kirim)}</span>
+                      <span>{assignedWarehouseLabel}</span>
+                    </div>
+                    <ProgressBar label={progressLabel} value={queueProgress.progressPercent} />
+                    {queueProgress.totalBoxes > 0 ? (
+                      <div className="receiving-active-session__summary">
+                        <span>{queueProgress.pendingBoxes > 0 ? `${queueProgress.pendingBoxes} box tersisa` : 'Semua box sudah dicek'}</span>
+                        <span>{queueProgress.issueBoxes > 0 ? `${queueProgress.issueBoxes} box perlu perhatian` : 'Belum ada issue'}</span>
+                      </div>
+                    ) : null}
                   </div>
-                  <div className="receiving-item__meta">
-                    <span>{formatDateTime(shipment.waktu_kirim)}</span>
-                    <span>{assignedWarehouseLabel}</span>
-                  </div>
-                </div>
-                <button type="button" className="receiving-btn receiving-btn--ghost" onClick={() => void handleSelectShipment(shipment)}>
-                  Mulai
-                </button>
-              </article>
-            ))}
+                  <button type="button" className="receiving-btn receiving-btn--ghost" onClick={() => void handleSelectShipment(shipment)}>
+                    {isActiveShipment || queueProgress.scannedBoxes > 0 ? 'Lanjutkan' : 'Mulai'}
+                  </button>
+                </article>
+              );
+            })}
           </div>
         )}
       </SectionCard>
@@ -844,6 +916,7 @@ const ScanOfficerDashboard = () => {
                   <label htmlFor="qr-token">Token QR</label>
                   <input
                     id="qr-token"
+                    ref={manualTokenInputRef}
                     className="receiving-control"
                     type="text"
                     placeholder="BOX-TOKEN-001"
@@ -888,26 +961,12 @@ const ScanOfficerDashboard = () => {
                 </div>
 
                 <div className="receiving-field-group">
-                  <label htmlFor="condition-status">Kondisi</label>
-                  <select
-                    id="condition-status"
-                    className="receiving-control"
-                    value={verificationForm.conditionStatus}
-                    onChange={(event) => setVerificationForm((prev) => ({ ...prev, conditionStatus: event.target.value }))}
-                  >
-                    <option value="normal">Normal</option>
-                    <option value="damaged">Rusak</option>
-                    <option value="suspect">Mencurigakan</option>
-                  </select>
-                </div>
-
-                <div className="receiving-field-group">
                   <label htmlFor="verification-notes">Catatan</label>
                   <textarea
                     id="verification-notes"
                     className="receiving-control receiving-control--textarea"
                     rows="4"
-                    placeholder="Tambahkan catatan kalau perlu review manager."
+                    placeholder="Opsional. Isi hanya kalau ada selisih atau butuh tindak lanjut."
                     value={verificationForm.notes}
                     onChange={(event) => setVerificationForm((prev) => ({ ...prev, notes: event.target.value }))}
                   />
@@ -923,7 +982,7 @@ const ScanOfficerDashboard = () => {
                     {verifyLoading ? 'Menyimpan...' : 'Simpan dan lanjut'}
                   </AppButton>
                   <button type="button" className="receiving-btn receiving-btn--ghost" onClick={resetVerificationState} disabled={loading}>
-                    Kosongkan box
+                    Batalkan box ini
                   </button>
                 </div>
               </div>
@@ -934,6 +993,54 @@ const ScanOfficerDashboard = () => {
               </div>
             ) : scanMethod === 'camera' && !sheetExpanded ? (
               <div className="receiving-sheet__hint">Tarik panel ke atas untuk input manual atau detail shipment.</div>
+            ) : activeShipment && progress.pendingBoxes > 0 ? (
+              <div className="receiving-sheet__empty">
+                <strong>{lastVerifiedBoxCode ? `Box ${lastVerifiedBoxCode} selesai` : 'Siap scan box berikutnya'}</strong>
+                <span>
+                  {scanMethod === 'camera'
+                    ? `Masih ada ${progress.pendingBoxes} box lagi. Lanjutkan scan dari kamera, atau pindah ke manual kalau label sulit terbaca.`
+                    : `Masih ada ${progress.pendingBoxes} box lagi. Masukkan token QR box berikutnya untuk lanjut verifikasi.`}
+                </span>
+                <div className="receiving-actions">
+                  {scanMethod === 'camera' ? (
+                    <AppButton
+                      className="receiving-primary-button"
+                      disabled={loading || cameraStarting || !hasWarehouseScope}
+                      type="button"
+                      onClick={() => {
+                        setSheetExpanded(false);
+                        void startCamera();
+                      }}
+                    >
+                      {cameraStarting ? 'Menyalakan kamera...' : 'Scan box berikutnya'}
+                    </AppButton>
+                  ) : (
+                    <AppButton
+                      className="receiving-primary-button"
+                      disabled={loading || !hasWarehouseScope}
+                      type="button"
+                      onClick={() => manualTokenInputRef.current?.focus()}
+                    >
+                      Input box berikutnya
+                    </AppButton>
+                  )}
+                  <button
+                    type="button"
+                    className="receiving-btn receiving-btn--ghost"
+                    onClick={() => {
+                      setScanMethod(scanMethod === 'camera' ? 'manual' : 'camera');
+                      setSheetExpanded(scanMethod !== 'camera');
+                    }}
+                  >
+                    {scanMethod === 'camera' ? 'Gunakan manual' : 'Pakai kamera'}
+                  </button>
+                </div>
+              </div>
+            ) : activeShipment && progress.totalBoxes > 0 ? (
+              <div className="receiving-sheet__empty">
+                <strong>Semua box sudah diverifikasi</strong>
+                <span>Sekarang kamu bisa selesaikan receiving untuk shipment ini.</span>
+              </div>
             ) : (
               <div className="receiving-sheet__empty">
                 <strong>Belum ada yang diverifikasi</strong>
@@ -948,6 +1055,51 @@ const ScanOfficerDashboard = () => {
 
   const renderHistoryView = () => (
     <div className="receiving-mobile__stack">
+      {activeShipment ? (
+        <SectionCard title="Shipment aktif sekarang">
+          <article className="receiving-item receiving-item--active-session">
+            <div className="receiving-item__body">
+              <div className="receiving-item__top">
+                <div>
+                  <strong>{activeShipment.no_pengiriman || `SHP-${activeShipment.ID_outbound}`}</strong>
+                  <p>{activeShipment.vendor?.nama_vendor || `Vendor ${activeShipment.ID_vendor || '-'}`}</p>
+                </div>
+                <StatusBadge
+                  label={progress.pendingBoxes > 0 ? 'Sedang diproses' : 'Siap diselesaikan'}
+                  tone={progress.pendingBoxes > 0 ? 'info' : 'success'}
+                />
+              </div>
+              <div className="receiving-item__meta">
+                <span>{formatDateTime(activeInbound?.timestamp_terima || activeShipment.waktu_kirim)}</span>
+                <span>{activeInbound?.nama_penerima || receiverName}</span>
+              </div>
+              <ProgressBar
+                label={`${progress.scannedBoxes} dari ${progress.totalBoxes} box diproses`}
+                value={progress.progressPercent}
+              />
+              <div className="receiving-active-session__summary">
+                <span>{progress.pendingBoxes > 0 ? `${progress.pendingBoxes} box lagi` : 'Semua box sudah dicek'}</span>
+                <span>{progress.issueBoxes > 0 ? `${progress.issueBoxes} box perlu perhatian` : 'Belum ada issue'}</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="receiving-btn receiving-btn--ghost"
+              onClick={() => {
+                setActiveTab('receive');
+                if (progress.pendingBoxes > 0) {
+                  setScanMethod('camera');
+                  setSheetExpanded(false);
+                } else {
+                  setSheetExpanded(true);
+                }
+              }}
+            >
+              {progress.pendingBoxes > 0 ? 'Lanjutkan scan' : 'Buka shipment aktif'}
+            </button>
+          </article>
+        </SectionCard>
+      ) : null}
       <SectionCard
         title="Riwayat terbaru"
         action={(
@@ -1002,7 +1154,11 @@ const ScanOfficerDashboard = () => {
                   <button
                     type="button"
                     className="receiving-btn receiving-btn--ghost"
-                    onClick={() => void loadShipmentContext(inbound.ID_outbound).then(() => setActiveTab('receive'))}
+                    onClick={() => void loadShipmentContext(inbound.ID_outbound).then((shipment) => {
+                      if (shipment) {
+                        setActiveTab('receive');
+                      }
+                    })}
                   >
                     Buka
                   </button>

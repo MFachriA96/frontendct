@@ -366,7 +366,7 @@ const AdminDashboard = () => {
     }
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    navigate('/login');
+    navigate('/login', { replace: true });
   };
 
   const resetNewUserForm = () => {
@@ -635,7 +635,7 @@ const AdminDashboard = () => {
 
                         {usersList.length === 0 && primaryLoaded ? (
                           <tr>
-                            <td colSpan="6" className="admin-table__empty">Belum ada user dari backend.</td>
+                            <td colSpan="6" className="admin-table__empty">Belum ada user yang tersedia.</td>
                           </tr>
                         ) : null}
                       </tbody>
@@ -701,7 +701,7 @@ const AdminDashboard = () => {
 
                         {vendors.length === 0 && primaryLoaded ? (
                           <tr>
-                            <td colSpan="5" className="admin-table__empty">Belum ada vendor dari backend.</td>
+                            <td colSpan="5" className="admin-table__empty">Belum ada vendor yang tersedia.</td>
                           </tr>
                         ) : null}
                       </tbody>
@@ -737,7 +737,7 @@ const AdminDashboard = () => {
                   ))}
 
                   {activityFeed.length === 0 && activityLoaded ? (
-                    <div className="admin-empty-block">Belum ada aktivitas terbaru dari backend.</div>
+                    <div className="admin-empty-block">Belum ada aktivitas terbaru untuk ditampilkan.</div>
                   ) : null}
                 </div>
               )}

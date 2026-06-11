@@ -4,41 +4,8 @@ import axios from 'axios';
 import LoginForm from '../components/login/LoginForm';
 import LoginHero from '../components/login/LoginHero';
 import { API_BASE_URL } from '../config/api';
+import { getRoleDestination, getStoredAuthRedirect } from '../utils/authRedirect';
 import './Login.css';
-
-const getRoleDestination = (role) => {
-  const resolvedRole = String(role || '').toLowerCase();
-
-  if (resolvedRole === 'vendor') {
-    return {
-      path: '/vendor-dashboard',
-      message: 'Menyiapkan workspace vendor...',
-    };
-  }
-
-  if (resolvedRole === 'staff' || resolvedRole === 'petugas' || resolvedRole === 'petugas scan') {
-    return {
-      path: '/scan-officer-dashboard',
-      message: 'Menyiapkan scanner workspace...',
-    };
-  }
-
-  if (resolvedRole === 'manager') {
-    return {
-      path: '/manager-dashboard',
-      message: 'Menyiapkan dashboard manager...',
-    };
-  }
-
-  if (resolvedRole === 'admin') {
-    return {
-      path: '/admin-dashboard',
-      message: 'Menyiapkan workspace admin...',
-    };
-  }
-
-  return null;
-};
 
 const Login = () => {
   const navigate = useNavigate();
@@ -56,12 +23,18 @@ const Login = () => {
     });
     document.body.style.overflow = '';
 
+    const redirect = getStoredAuthRedirect(window.localStorage);
+    if (redirect) {
+      navigate(redirect.path, { replace: true });
+      return;
+    }
+
     const loginNotice = sessionStorage.getItem('loginNotice');
     if (loginNotice) {
       setError(loginNotice);
       sessionStorage.removeItem('loginNotice');
     }
-  }, []);
+  }, [navigate]);
 
   const handleLogin = async (event) => {
     event.preventDefault();
@@ -98,7 +71,7 @@ const Login = () => {
         setTransitionMessage(destination.message);
         setTransitioning(true);
         await new Promise((resolve) => window.setTimeout(resolve, 220));
-        navigate(destination.path);
+        navigate(destination.path, { replace: true });
         return;
       }
 
