@@ -94,6 +94,7 @@ const ManagerDashboard = () => {
     barang_dikirim_ulang: 'Barang sudah dikirim ulang',
     closing: 'Tindak lanjut selesai',
   };
+  const reportStatusSteps = ['dikirim_ke_vendor', 'diproses_vendor', 'barang_dikirim_ulang', 'closing'];
 
   const navigate = useNavigate();
 
@@ -112,6 +113,22 @@ const ManagerDashboard = () => {
   };
 
   const normalizeOverviewResponse = (data) => data?.data || null;
+
+  const buildReportProgressSteps = (status) => {
+    const activeIndex = reportStatusSteps.indexOf(status);
+
+    return reportStatusSteps.map((step, index) => ({
+      key: step,
+      label: reportStatusText[step],
+      state: activeIndex === -1
+        ? 'upcoming'
+        : activeIndex > index
+          ? 'done'
+          : activeIndex === index
+            ? 'current'
+            : 'upcoming',
+    }));
+  };
 
   const fetchData = useCallback(async ({ includeSecondary = true } = {}) => {
     const token = localStorage.getItem('token');
@@ -236,7 +253,7 @@ const ManagerDashboard = () => {
     }
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    navigate('/login');
+    navigate('/login', { replace: true });
   };
 
   const handleResolve = async () => {
@@ -424,6 +441,19 @@ const ManagerDashboard = () => {
     }), { quantity: 0, boxes: 0 });
   };
 
+  const getShipmentStatusLabel = (status) => {
+    switch (status) {
+      case 'verified': return 'Sudah diverifikasi';
+      case 'delivered': return 'Selesai';
+      case 'discrepancy': return 'Perlu tindak lanjut';
+      case 'in_transit': return 'Dalam perjalanan';
+      case 'draft': return 'Draft';
+      case 'submitted': return 'Sudah dikirim';
+      case 'arrived': return 'Sudah tiba';
+      default: return String(status || 'Tidak diketahui').replace(/_/g, ' ');
+    }
+  };
+
   const escapeCsvValue = (value) => {
     const stringValue = value === null || value === undefined ? '' : String(value);
     return `"${stringValue.replace(/"/g, '""')}"`;
@@ -432,37 +462,37 @@ const ManagerDashboard = () => {
   const handleExportReport = () => {
     const generatedAt = new Date();
     const rows = [
-      ['Epson Verification Manager Report'],
-      ['Generated At', formatDateTime(generatedAt)],
+      ['Laporan Verifikasi Manager Epson'],
+      ['Dibuat pada', formatDateTime(generatedAt)],
       [],
-      ['Summary'],
-      ['Metric', 'Value'],
-      ['Total Shipments', shipmentCounts.total],
-      ['Shipping', shipmentCounts.shipping],
-      ['Delivered', shipmentCounts.delivered],
-      ['Shipment Discrepancy', shipmentCounts.discrepancy],
-      ['Items Matched', discrepancyStatusCounts.match],
-      ['Pending Review', pendingCount],
+      ['Ringkasan'],
+      ['Metrik', 'Nilai'],
+      ['Total shipment', shipmentCounts.total],
+      ['Dalam pengiriman', shipmentCounts.shipping],
+      ['Selesai diverifikasi', shipmentCounts.delivered],
+      ['Shipment bermasalah', shipmentCounts.discrepancy],
+      ['Item cocok', discrepancyStatusCounts.match],
+      ['Perlu keputusan', pendingCount],
       [],
-      ['Shipment Overview'],
-      ['Shipment ID', 'Delivery Number', 'Vendor', 'Origin', 'Status', 'Created At', 'Dispatch Time', 'Estimated Arrival'],
+      ['Ringkasan shipment'],
+      ['ID Shipment', 'Nomor Pengiriman', 'Vendor', 'Asal', 'Status', 'Dibuat Pada', 'Waktu Kirim', 'Estimasi Tiba'],
       ...shipments.map(shipment => [
         `SHP-${shipment.ID_outbound}`,
         shipment.no_pengiriman || '',
         shipment.vendor?.nama_vendor || `Vendor ${shipment.ID_vendor || '-'}`,
         shipment.lokasi_asal || '',
-        shipment.status || '',
+        getShipmentStatusLabel(shipment.status),
         formatDateTime(shipment.created_at),
         formatDateTime(shipment.waktu_kirim),
         formatDateTime(shipment.estimasi_tiba),
       ]),
       [],
-      ['Discrepancy Review'],
-      ['Discrepancy ID', 'Item', 'Status', 'Expected Qty', 'Received Qty', 'Difference', 'Detected At'],
+      ['Tinjauan selisih'],
+      ['ID Selisih', 'Item', 'Status', 'Qty Ekspektasi', 'Qty Diterima', 'Selisih', 'Terdeteksi Pada'],
       ...discrepancies.map(discrepancy => [
         `DISC-${discrepancy.ID_discrepancy}`,
         discrepancy.outbound_detail?.barang?.nama_barang || `Outbound Detail ${discrepancy.ID_outbound_detail}`,
-        discrepancy.status || '',
+        String(discrepancy.status || '').replace(/_/g, ' ') || 'Tidak diketahui',
         discrepancy.quantity_outbound ?? '',
         discrepancy.quantity_inbound ?? '',
         discrepancy.selisih ?? '',
@@ -1232,50 +1262,81 @@ const ManagerDashboard = () => {
               <div className="report-preview-sheet">
                 <div className="report-preview-head">
                   <div>
-                    <span>Vendor</span>
-                    <strong>{reportModalData.discrepancy?.shipment?.vendor?.nama_vendor || '-'}</strong>
+                    <span>Nomor dokumen</span>
+                    <strong>{reportModalData.no_dokumen_r1 || 'Dokumen R1'}</strong>
                   </div>
-                  <span className="status-badge status-danger">Instruksi tindak lanjut</span>
+                  <span className={`status-badge ${reportModalData.status_dokumen === 'closing' ? 'status-success' : reportModalData.status_dokumen === 'barang_dikirim_ulang' ? 'status-warning' : 'status-danger'}`}>
+                    {reportStatusText[reportModalData.status_dokumen] || reportModalData.status_dokumen || 'Status dokumen'}
+                  </span>
                 </div>
-                <div className="shipment-detail-grid">
-                  <div>
-                    <span>Shipment</span>
-                    <strong>{reportModalData.discrepancy?.shipment?.no_pengiriman || `SHP-${reportModalData.discrepancy?.shipment?.ID_outbound || '-'}`}</strong>
-                  </div>
-                  <div>
-                    <span>Origin</span>
-                    <strong>{reportModalData.discrepancy?.shipment?.lokasi_asal || '-'}</strong>
-                  </div>
-                  <div>
-                    <span>Waktu kirim</span>
-                    <strong>{formatDateTime(reportModalData.discrepancy?.shipment?.waktu_kirim)}</strong>
-                  </div>
-                  <div>
-                    <span>Status dokumen</span>
-                      <strong>{(reportStatusText[reportModalData.status_dokumen] || reportModalData.status_dokumen || '-').toUpperCase()}</strong>
-                  </div>
-                </div>
-                <div className="report-mismatch-row">
-                  <div>
-                    <span>Produk</span>
-                    <strong>{reportModalData.discrepancy?.item?.nama_barang || '-'}</strong>
-                  </div>
-                  <div>
-                    <span>Ekspektasi</span>
-                    <strong>{reportModalData.discrepancy?.quantity_outbound ?? '-'}</strong>
-                  </div>
-                  <div>
-                    <span>Diterima</span>
-                    <strong>{reportModalData.discrepancy?.quantity_inbound ?? '-'}</strong>
-                  </div>
-                  <div>
-                    <span>Selisih</span>
-                    <strong className="text-danger">{reportModalData.discrepancy?.selisih ?? '-'}</strong>
+                <div className="report-preview-section">
+                  <div className="report-preview-section__title">Ringkasan dokumen</div>
+                  <div className="shipment-detail-grid">
+                    <div>
+                      <span>Shipment</span>
+                      <strong>{reportModalData.discrepancy?.shipment?.no_pengiriman || `SHP-${reportModalData.discrepancy?.shipment?.ID_outbound || '-'}`}</strong>
+                    </div>
+                    <div>
+                      <span>Vendor</span>
+                      <strong>{reportModalData.discrepancy?.shipment?.vendor?.nama_vendor || '-'}</strong>
+                    </div>
+                    <div>
+                      <span>Asal</span>
+                      <strong>{reportModalData.discrepancy?.shipment?.lokasi_asal || '-'}</strong>
+                    </div>
+                    <div>
+                      <span>Waktu kirim</span>
+                      <strong>{formatDateTime(reportModalData.discrepancy?.shipment?.waktu_kirim)}</strong>
+                    </div>
+                    <div>
+                      <span>Dibuat pada</span>
+                      <strong>{formatDateTime(reportModalData.dibuat_at || reportModalData.created_at)}</strong>
+                    </div>
+                    <div>
+                      <span>Dibuat oleh</span>
+                      <strong>{reportModalData.pembuat?.nama || 'Manager'}</strong>
+                    </div>
                   </div>
                 </div>
-                <div className="report-notes">
-                  <span>Instruksi manager</span>
-                  <p>{reportModalData.keterangan || '-'}</p>
+                <div className="report-preview-section">
+                  <div className="report-preview-section__title">Ringkasan selisih</div>
+                  <div className="report-mismatch-row">
+                    <div>
+                      <span>Produk</span>
+                      <strong>{reportModalData.discrepancy?.item?.nama_barang || '-'}</strong>
+                    </div>
+                    <div>
+                      <span>Ekspektasi</span>
+                      <strong>{reportModalData.discrepancy?.quantity_outbound ?? '-'}</strong>
+                    </div>
+                    <div>
+                      <span>Diterima</span>
+                      <strong>{reportModalData.discrepancy?.quantity_inbound ?? '-'}</strong>
+                    </div>
+                    <div>
+                      <span>Selisih</span>
+                      <strong className="text-danger">{reportModalData.discrepancy?.selisih ?? '-'}</strong>
+                    </div>
+                  </div>
+                </div>
+                <div className="report-preview-section">
+                  <div className="report-preview-section__title">Progress tindak lanjut</div>
+                  <div className="report-progress">
+                    {buildReportProgressSteps(reportModalData.status_dokumen).map((step, index) => (
+                      <div key={step.key} className={`report-progress__step is-${step.state}`}>
+                        <div className="report-progress__index">{index + 1}</div>
+                        <div className="report-progress__content">
+                          <strong>{step.label}</strong>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="report-preview-section">
+                  <div className="report-preview-section__title">Instruksi manager</div>
+                  <div className="report-notes">
+                    <p>{reportModalData.keterangan || '-'}</p>
+                  </div>
                 </div>
               </div>
             </div>
