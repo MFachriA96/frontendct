@@ -43,40 +43,6 @@ const getStatusTone = (value) => {
   return 'neutral';
 };
 
-const getQueueShipmentProgress = (shipment) => {
-  const fromDetails = buildReceivingProgress(shipment);
-  if (fromDetails.totalBoxes > 0) {
-    return fromDetails;
-  }
-
-  const scannedBoxes = Number(
-    shipment?.total_qr_sudah_discan
-    ?? shipment?.total_box_sudah_discan
-    ?? shipment?.scanned_boxes
-    ?? 0
-  );
-  const totalBoxes = Number(
-    shipment?.total_qr_expected
-    ?? shipment?.total_box_expected
-    ?? shipment?.total_boxes
-    ?? shipment?.ready_qr
-    ?? shipment?.total_qr
-    ?? 0
-  );
-  const issueBoxes = Number(shipment?.issue_boxes ?? shipment?.total_issue_boxes ?? 0);
-  const verifiedBoxes = Number(shipment?.verified_boxes ?? scannedBoxes);
-  const pendingBoxes = Math.max(totalBoxes - scannedBoxes, 0);
-
-  return {
-    totalBoxes,
-    scannedBoxes,
-    verifiedBoxes,
-    issueBoxes,
-    pendingBoxes,
-    progressPercent: totalBoxes > 0 ? Math.min(100, Math.round((scannedBoxes / totalBoxes) * 100)) : 0,
-  };
-};
-
 const navItems = [
   { value: 'queue', label: 'Antrian', icon: 'fa-solid fa-list-check' },
   { value: 'receive', label: 'Scan', icon: 'fa-solid fa-qrcode' },
@@ -94,7 +60,7 @@ const scannerFaqItems = [
   },
   {
     question: 'Apa yang dilakukan setelah QR terbaca?',
-    answer: 'Sistem akan membuka box yang aktif. Petugas lalu memeriksa quantity aktual, menambahkan catatan bila perlu, lalu menyimpan verifikasi.',
+    answer: 'Sistem akan membuka box yang aktif. Petugas lalu memeriksa quantity aktual, memilih kondisi box, lalu menyimpan verifikasi.',
   },
   {
     question: 'Kalau ada selisih bagaimana?',
@@ -119,17 +85,19 @@ const ScanOfficerDashboard = () => {
   const [cameraStarting, setCameraStarting] = useState(false);
   const [scanResolving, setScanResolving] = useState(false);
   const [verifyLoading, setVerifyLoading] = useState(false);
+  const [photoUploadLoading, setPhotoUploadLoading] = useState(false);
   const [finalizeLoading, setFinalizeLoading] = useState(false);
   const [queueShipments, setQueueShipments] = useState([]);
   const [historyInbounds, setHistoryInbounds] = useState([]);
   const [activeShipment, setActiveShipment] = useState(null);
   const [activeInbound, setActiveInbound] = useState(null);
   const [activeBox, setActiveBox] = useState(null);
+  const [pendingPhotos, setPendingPhotos] = useState([]);
   const [verificationForm, setVerificationForm] = useState({
     actualQty: '',
+    conditionStatus: 'normal',
     notes: '',
   });
-  const [lastVerifiedBoxCode, setLastVerifiedBoxCode] = useState('');
   const [scanMethod, setScanMethod] = useState('manual');
   const [qrToken, setQrToken] = useState('');
   const [idGudang] = useState(() => getAssignedWarehouseId(user, ''));
@@ -145,13 +113,14 @@ const ScanOfficerDashboard = () => {
 
   const navigate = useNavigate();
   const videoRef = useRef(null);
-  const manualTokenInputRef = useRef(null);
   const streamRef = useRef(null);
   const scanLoopRef = useRef(null);
   const detectorRef = useRef(null);
   const fallbackCanvasRef = useRef(null);
   const cameraSuccessTimerRef = useRef(null);
   const sheetTouchStartYRef = useRef(null);
+  const cameraPhotoInputRef = useRef(null);
+  const galleryPhotoInputRef = useRef(null);
 
   const assignedWarehouseLabel = user?.warehouse?.nama_gudang
     || user?.nama_gudang
@@ -249,38 +218,39 @@ const ScanOfficerDashboard = () => {
 
   const resetVerificationState = useCallback(() => {
     setActiveBox(null);
+    setPendingPhotos((prev) => {
+      prev.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
+      return [];
+    });
     setVerificationForm({
       actualQty: '',
+      conditionStatus: 'normal',
       notes: '',
     });
   }, []);
 
-  const handleLogout = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (token) {
-        await axios.post(`${API_BASE_URL}/api/auth/logout`, {}, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-      }
-    } catch {
-      // Keep client logout resilient.
-    }
+  const handleLogout = () => {
+    const token = localStorage.getItem('token');
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    navigate('/login', { replace: true });
+    navigate('/login');
+
+    if (token) {
+      axios.post(`${API_BASE_URL}/api/auth/logout`, {}, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {
+        // Keep client logout resilient.
+      });
+    }
   };
 
   const handleSelectShipment = async (shipment) => {
     resetVerificationState();
-    setLastVerifiedBoxCode('');
     setScanFeedback(null);
     setScanMethod('camera');
     setSheetExpanded(false);
-    const nextShipment = await loadShipmentContext(shipment.ID_outbound);
-    if (nextShipment) {
-      setActiveTab('receive');
-    }
+    await loadShipmentContext(shipment.ID_outbound);
+    setActiveTab('receive');
   };
 
   const handleTabChange = (nextTab) => {
@@ -299,7 +269,6 @@ const ScanOfficerDashboard = () => {
     setLoading(true);
     setScanResolving(true);
     setScanFeedback(null);
-    setLastVerifiedBoxCode('');
     try {
       const token = localStorage.getItem('token');
       const payload = {
@@ -315,8 +284,13 @@ const ScanOfficerDashboard = () => {
       const result = response.data?.data || {};
       setActiveInbound(result.inbound || null);
       setActiveBox(result.box || null);
+      setPendingPhotos((prev) => {
+        prev.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
+        return [];
+      });
       setVerificationForm({
         actualQty: result.box?.expected_qty_in_box ?? '',
+        conditionStatus: 'normal',
         notes: '',
       });
       setSheetExpanded(true);
@@ -515,24 +489,16 @@ const ScanOfficerDashboard = () => {
   const handleVerifyBox = async () => {
     if (!activeInbound?.ID_inbound || !activeBox?.ID_outbound_box) return;
 
-    const normalizedActualQty = Number(verificationForm.actualQty);
-    if (!Number.isFinite(normalizedActualQty) || normalizedActualQty < 0) {
-      setScanFeedback({
-        type: 'error',
-        message: 'Quantity aktual harus berupa angka 0 atau lebih besar.',
-      });
-      return;
-    }
-
     setLoading(true);
     setVerifyLoading(true);
     try {
       const token = localStorage.getItem('token');
+      const boxCode = activeBox.box_code;
       const payload = buildVerifyBoxPayload({
         inboundId: activeInbound.ID_inbound,
         boxId: activeBox.ID_outbound_box,
         actualQty: verificationForm.actualQty,
-        conditionStatus: 'normal',
+        conditionStatus: verificationForm.conditionStatus,
         notes: verificationForm.notes,
       });
       const response = await axios.post(`${API_BASE_URL}/api/receiving/verify-box`, payload, {
@@ -540,36 +506,66 @@ const ScanOfficerDashboard = () => {
       });
 
       const result = response.data?.data || {};
-      const verifiedBoxCode = activeBox.box_code;
-      const updatedShipment = await loadShipmentContext(activeShipment?.ID_outbound);
-      const updatedProgress = buildReceivingProgress(updatedShipment);
-      const pendingBoxes = updatedProgress.pendingBoxes;
+      if (pendingPhotos.length > 0) {
+        setPhotoUploadLoading(true);
+
+        for (const pendingPhoto of pendingPhotos) {
+          const photoPayload = new FormData();
+          photoPayload.append('ID_inbound', activeInbound.ID_inbound);
+          photoPayload.append('ID_outbound_box', activeBox.ID_outbound_box);
+          photoPayload.append('foto', pendingPhoto.file);
+
+          await axios.post(`${API_BASE_URL}/api/receiving/upload-photo`, photoPayload, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'multipart/form-data',
+            },
+          });
+        }
+      }
 
       setScanFeedback({
         type: 'success',
-        message: pendingBoxes > 0
-          ? `Box ${verifiedBoxCode} tersimpan. Lanjut scan box berikutnya.`
-          : `Box ${verifiedBoxCode} tersimpan. Semua box pada shipment ini sudah diverifikasi.`,
+        message: `Verifikasi ${boxCode} tersimpan. Hasil: ${formatStatusLabel(result.verification_status, 'tersimpan')}.`,
       });
-      await Promise.all([fetchQueue(), fetchHistory()]);
+      await Promise.all([
+        loadShipmentContext(activeShipment?.ID_outbound),
+        fetchQueue(),
+        fetchHistory(),
+      ]);
       resetVerificationState();
-      setLastVerifiedBoxCode(verifiedBoxCode);
       setQrToken('');
-      setSheetExpanded(true);
-      if (scanMethod === 'manual') {
-        window.requestAnimationFrame(() => {
-          manualTokenInputRef.current?.focus();
-        });
-      }
     } catch (error) {
       setScanFeedback({
         type: 'error',
         message: error.response?.data?.message || 'Gagal verifikasi box.',
       });
     } finally {
+      setPhotoUploadLoading(false);
       setVerifyLoading(false);
       setLoading(false);
     }
+  };
+
+  const handlePhotoSelected = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+
+    if (!file || !activeBox?.ID_outbound_box) {
+      return;
+    }
+
+    setScanFeedback(null);
+    const previewUrl = URL.createObjectURL(file);
+    setPendingPhotos((prev) => ([
+      ...prev,
+      {
+        id: `${Date.now()}-${file.name}`,
+        file,
+        previewUrl,
+        is_pending: true,
+      },
+    ]));
   };
 
   const handleFinalizeReceiving = async () => {
@@ -595,7 +591,6 @@ const ScanOfficerDashboard = () => {
       setActiveShipment(null);
       setActiveInbound(null);
       resetVerificationState();
-      setLastVerifiedBoxCode('');
       setActiveTab('history');
     } catch (error) {
       setScanFeedback({
@@ -609,6 +604,14 @@ const ScanOfficerDashboard = () => {
   };
 
   const progress = buildReceivingProgress(activeShipment);
+  const activeBoxPhotos = [
+    ...(Array.isArray(activeBox?.photos) ? activeBox.photos : []),
+    ...pendingPhotos.map((photo) => ({
+      ID_foto: photo.id,
+      file_url: photo.previewUrl,
+      is_pending: true,
+    })),
+  ];
 
   const handleSheetTouchStart = (event) => {
     sheetTouchStartYRef.current = event.touches?.[0]?.clientY ?? null;
@@ -731,44 +734,29 @@ const ScanOfficerDashboard = () => {
           />
         ) : (
           <div className="receiving-list">
-            {queueShipments.map((shipment) => {
-              const queueProgress = getQueueShipmentProgress(shipment);
-              const isActiveShipment = activeShipment?.ID_outbound === shipment.ID_outbound;
-              const progressLabel = queueProgress.totalBoxes > 0
-                ? `${queueProgress.scannedBoxes} dari ${queueProgress.totalBoxes} box diproses`
-                : 'Progress box akan muncul setelah shipment dibuka';
-
-              return (
-                <article className={`receiving-item ${isActiveShipment ? 'receiving-item--active-session' : ''}`} key={shipment.ID_outbound}>
-                  <div className="receiving-item__body">
-                    <div className="receiving-item__top">
-                      <div>
-                        <strong>{shipment.no_pengiriman || `SHP-${shipment.ID_outbound}`}</strong>
-                        <p>{shipment.vendor?.nama_vendor || `Vendor ${shipment.ID_vendor || '-'}`}</p>
-                      </div>
-                      <StatusBadge
-                        label={formatStatusLabel(shipment.status, 'submitted')}
-                        tone={getStatusTone(shipment.status)}
-                      />
+            {queueShipments.map((shipment) => (
+              <article className="receiving-item" key={shipment.ID_outbound}>
+                <div className="receiving-item__body">
+                  <div className="receiving-item__top">
+                    <div>
+                      <strong>{shipment.no_pengiriman || `SHP-${shipment.ID_outbound}`}</strong>
+                      <p>{shipment.vendor?.nama_vendor || `Vendor ${shipment.ID_vendor || '-'}`}</p>
                     </div>
-                    <div className="receiving-item__meta">
-                      <span>{formatDateTime(shipment.waktu_kirim)}</span>
-                      <span>{assignedWarehouseLabel}</span>
-                    </div>
-                    <ProgressBar label={progressLabel} value={queueProgress.progressPercent} />
-                    {queueProgress.totalBoxes > 0 ? (
-                      <div className="receiving-active-session__summary">
-                        <span>{queueProgress.pendingBoxes > 0 ? `${queueProgress.pendingBoxes} box tersisa` : 'Semua box sudah dicek'}</span>
-                        <span>{queueProgress.issueBoxes > 0 ? `${queueProgress.issueBoxes} box perlu perhatian` : 'Belum ada issue'}</span>
-                      </div>
-                    ) : null}
+                    <StatusBadge
+                      label={formatStatusLabel(shipment.status, 'submitted')}
+                      tone={getStatusTone(shipment.status)}
+                    />
                   </div>
-                  <button type="button" className="receiving-btn receiving-btn--ghost" onClick={() => void handleSelectShipment(shipment)}>
-                    {isActiveShipment || queueProgress.scannedBoxes > 0 ? 'Lanjutkan' : 'Mulai'}
-                  </button>
-                </article>
-              );
-            })}
+                  <div className="receiving-item__meta">
+                    <span>{formatDateTime(shipment.waktu_kirim)}</span>
+                    <span>{assignedWarehouseLabel}</span>
+                  </div>
+                </div>
+                <button type="button" className="receiving-btn receiving-btn--ghost" onClick={() => void handleSelectShipment(shipment)}>
+                  Mulai
+                </button>
+              </article>
+            ))}
           </div>
         )}
       </SectionCard>
@@ -916,7 +904,6 @@ const ScanOfficerDashboard = () => {
                   <label htmlFor="qr-token">Token QR</label>
                   <input
                     id="qr-token"
-                    ref={manualTokenInputRef}
                     className="receiving-control"
                     type="text"
                     placeholder="BOX-TOKEN-001"
@@ -961,28 +948,104 @@ const ScanOfficerDashboard = () => {
                 </div>
 
                 <div className="receiving-field-group">
+                  <label htmlFor="condition-status">Kondisi</label>
+                  <select
+                    id="condition-status"
+                    className="receiving-control"
+                    value={verificationForm.conditionStatus}
+                    onChange={(event) => setVerificationForm((prev) => ({ ...prev, conditionStatus: event.target.value }))}
+                  >
+                    <option value="normal">Normal</option>
+                    <option value="damaged">Rusak</option>
+                    <option value="suspect">Mencurigakan</option>
+                  </select>
+                </div>
+
+                <div className="receiving-field-group">
                   <label htmlFor="verification-notes">Catatan</label>
                   <textarea
                     id="verification-notes"
                     className="receiving-control receiving-control--textarea"
                     rows="4"
-                    placeholder="Opsional. Isi hanya kalau ada selisih atau butuh tindak lanjut."
+                    placeholder="Tambahkan catatan kalau perlu review manager."
                     value={verificationForm.notes}
                     onChange={(event) => setVerificationForm((prev) => ({ ...prev, notes: event.target.value }))}
                   />
                 </div>
 
+                <div className="receiving-photo-panel">
+                  <div className="receiving-photo-panel__head">
+                    <div>
+                      <span>Foto barang</span>
+                      <strong>{activeBoxPhotos.length ? `${activeBoxPhotos.length} foto terlampir` : 'Belum ada foto terlampir'}</strong>
+                    </div>
+                  </div>
+                  <div className="receiving-photo-panel__actions">
+                    <button
+                      type="button"
+                      className="receiving-btn receiving-btn--ghost"
+                      onClick={() => cameraPhotoInputRef.current?.click()}
+                      disabled={loading || photoUploadLoading}
+                    >
+                      <i className="fa-solid fa-camera"></i> Add Photo - Camera
+                    </button>
+                    <button
+                      type="button"
+                      className="receiving-btn receiving-btn--ghost"
+                      onClick={() => galleryPhotoInputRef.current?.click()}
+                      disabled={loading || photoUploadLoading}
+                    >
+                      <i className="fa-solid fa-image"></i> Add Photo - Upload
+                    </button>
+                  </div>
+                  <input
+                    ref={cameraPhotoInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    hidden
+                    onChange={handlePhotoSelected}
+                  />
+                  <input
+                    ref={galleryPhotoInputRef}
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    onChange={handlePhotoSelected}
+                  />
+                  {photoUploadLoading ? (
+                    <div className="receiving-photo-panel__empty">Mengunggah foto...</div>
+                  ) : activeBoxPhotos.length > 0 ? (
+                    <div className="receiving-photo-grid">
+                      {activeBoxPhotos.map((photo) => (
+                        <a
+                          key={photo.ID_foto || photo.file_url}
+                          className="receiving-photo-thumb"
+                          href={photo.file_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label="Buka foto barang"
+                        >
+                          <img src={photo.file_url} alt="Foto barang hasil verifikasi" />
+                        </a>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="receiving-photo-panel__empty">Belum ada foto terlampir.</div>
+                  )}
+                </div>
+
                 <div className="receiving-actions">
                   <AppButton
                     className="receiving-primary-button"
-                    disabled={loading || verificationForm.actualQty === ''}
+                    disabled={loading || photoUploadLoading || verificationForm.actualQty === ''}
                     type="button"
                     onClick={() => void handleVerifyBox()}
                   >
                     {verifyLoading ? 'Menyimpan...' : 'Simpan dan lanjut'}
                   </AppButton>
                   <button type="button" className="receiving-btn receiving-btn--ghost" onClick={resetVerificationState} disabled={loading}>
-                    Batalkan box ini
+                    Kosongkan box
                   </button>
                 </div>
               </div>
@@ -993,54 +1056,6 @@ const ScanOfficerDashboard = () => {
               </div>
             ) : scanMethod === 'camera' && !sheetExpanded ? (
               <div className="receiving-sheet__hint">Tarik panel ke atas untuk input manual atau detail shipment.</div>
-            ) : activeShipment && progress.pendingBoxes > 0 ? (
-              <div className="receiving-sheet__empty">
-                <strong>{lastVerifiedBoxCode ? `Box ${lastVerifiedBoxCode} selesai` : 'Siap scan box berikutnya'}</strong>
-                <span>
-                  {scanMethod === 'camera'
-                    ? `Masih ada ${progress.pendingBoxes} box lagi. Lanjutkan scan dari kamera, atau pindah ke manual kalau label sulit terbaca.`
-                    : `Masih ada ${progress.pendingBoxes} box lagi. Masukkan token QR box berikutnya untuk lanjut verifikasi.`}
-                </span>
-                <div className="receiving-actions">
-                  {scanMethod === 'camera' ? (
-                    <AppButton
-                      className="receiving-primary-button"
-                      disabled={loading || cameraStarting || !hasWarehouseScope}
-                      type="button"
-                      onClick={() => {
-                        setSheetExpanded(false);
-                        void startCamera();
-                      }}
-                    >
-                      {cameraStarting ? 'Menyalakan kamera...' : 'Scan box berikutnya'}
-                    </AppButton>
-                  ) : (
-                    <AppButton
-                      className="receiving-primary-button"
-                      disabled={loading || !hasWarehouseScope}
-                      type="button"
-                      onClick={() => manualTokenInputRef.current?.focus()}
-                    >
-                      Input box berikutnya
-                    </AppButton>
-                  )}
-                  <button
-                    type="button"
-                    className="receiving-btn receiving-btn--ghost"
-                    onClick={() => {
-                      setScanMethod(scanMethod === 'camera' ? 'manual' : 'camera');
-                      setSheetExpanded(scanMethod !== 'camera');
-                    }}
-                  >
-                    {scanMethod === 'camera' ? 'Gunakan manual' : 'Pakai kamera'}
-                  </button>
-                </div>
-              </div>
-            ) : activeShipment && progress.totalBoxes > 0 ? (
-              <div className="receiving-sheet__empty">
-                <strong>Semua box sudah diverifikasi</strong>
-                <span>Sekarang kamu bisa selesaikan receiving untuk shipment ini.</span>
-              </div>
             ) : (
               <div className="receiving-sheet__empty">
                 <strong>Belum ada yang diverifikasi</strong>
@@ -1055,51 +1070,6 @@ const ScanOfficerDashboard = () => {
 
   const renderHistoryView = () => (
     <div className="receiving-mobile__stack">
-      {activeShipment ? (
-        <SectionCard title="Shipment aktif sekarang">
-          <article className="receiving-item receiving-item--active-session">
-            <div className="receiving-item__body">
-              <div className="receiving-item__top">
-                <div>
-                  <strong>{activeShipment.no_pengiriman || `SHP-${activeShipment.ID_outbound}`}</strong>
-                  <p>{activeShipment.vendor?.nama_vendor || `Vendor ${activeShipment.ID_vendor || '-'}`}</p>
-                </div>
-                <StatusBadge
-                  label={progress.pendingBoxes > 0 ? 'Sedang diproses' : 'Siap diselesaikan'}
-                  tone={progress.pendingBoxes > 0 ? 'info' : 'success'}
-                />
-              </div>
-              <div className="receiving-item__meta">
-                <span>{formatDateTime(activeInbound?.timestamp_terima || activeShipment.waktu_kirim)}</span>
-                <span>{activeInbound?.nama_penerima || receiverName}</span>
-              </div>
-              <ProgressBar
-                label={`${progress.scannedBoxes} dari ${progress.totalBoxes} box diproses`}
-                value={progress.progressPercent}
-              />
-              <div className="receiving-active-session__summary">
-                <span>{progress.pendingBoxes > 0 ? `${progress.pendingBoxes} box lagi` : 'Semua box sudah dicek'}</span>
-                <span>{progress.issueBoxes > 0 ? `${progress.issueBoxes} box perlu perhatian` : 'Belum ada issue'}</span>
-              </div>
-            </div>
-            <button
-              type="button"
-              className="receiving-btn receiving-btn--ghost"
-              onClick={() => {
-                setActiveTab('receive');
-                if (progress.pendingBoxes > 0) {
-                  setScanMethod('camera');
-                  setSheetExpanded(false);
-                } else {
-                  setSheetExpanded(true);
-                }
-              }}
-            >
-              {progress.pendingBoxes > 0 ? 'Lanjutkan scan' : 'Buka shipment aktif'}
-            </button>
-          </article>
-        </SectionCard>
-      ) : null}
       <SectionCard
         title="Riwayat terbaru"
         action={(
@@ -1154,11 +1124,7 @@ const ScanOfficerDashboard = () => {
                   <button
                     type="button"
                     className="receiving-btn receiving-btn--ghost"
-                    onClick={() => void loadShipmentContext(inbound.ID_outbound).then((shipment) => {
-                      if (shipment) {
-                        setActiveTab('receive');
-                      }
-                    })}
+                    onClick={() => void loadShipmentContext(inbound.ID_outbound).then(() => setActiveTab('receive'))}
                   >
                     Buka
                   </button>

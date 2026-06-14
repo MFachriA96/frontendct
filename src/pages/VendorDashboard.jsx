@@ -34,6 +34,78 @@ import './VendorDashboard.css';
 
 const LazyAnalyticsTrendChart = lazy(() => import('../components/AnalyticsTrendChart'));
 
+const readJsonStorage = (key, fallback) => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+    return parsed ?? fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const getVendorCacheKey = (vendorId) => `vendorDashboardCache:${vendorId || 'unknown'}`;
+
+const readVendorDashboardCache = (vendorUser) => {
+  const vendorId = vendorUser?.ID_vendor;
+
+  if (!vendorId) {
+    return {};
+  }
+
+  return readJsonStorage(getVendorCacheKey(vendorId), {});
+};
+
+const writeVendorDashboardCache = (vendorId, patch) => {
+  if (!vendorId) {
+    return;
+  }
+
+  const cacheKey = getVendorCacheKey(vendorId);
+  const current = readJsonStorage(cacheKey, {});
+  localStorage.setItem(cacheKey, JSON.stringify({
+    ...current,
+    ...patch,
+    cached_at: new Date().toISOString(),
+  }));
+};
+
+const emptyPaginationMeta = {
+  current_page: 1,
+  last_page: 1,
+  per_page: 15,
+  total: 0,
+  from: 0,
+  to: 0,
+};
+
+const getShipmentQueryParams = (page = 1, statusFilter = 'total') => {
+  const params = { page };
+
+  if (['draft', 'shipping', 'delivered'].includes(statusFilter)) {
+    params.status_bucket = statusFilter;
+  }
+
+  if (statusFilter === 'discrepancy') {
+    params.has_discrepancy = true;
+  }
+
+  return params;
+};
+
+const getPaginationMeta = (responseData) => {
+  const payload = responseData?.data;
+  const metaSource = Array.isArray(payload) ? responseData : payload;
+
+  return {
+    current_page: Number(metaSource?.current_page ?? 1),
+    last_page: Number(metaSource?.last_page ?? 1),
+    per_page: Number(metaSource?.per_page ?? 15),
+    total: Number(metaSource?.total ?? (Array.isArray(payload) ? payload.length : 0)),
+    from: Number(metaSource?.from ?? 0),
+    to: Number(metaSource?.to ?? 0),
+  };
+};
+
 const vendorStatusText = {
   draft: 'Belum dikirim',
   submitted: 'Sedang dikirim',
@@ -54,24 +126,6 @@ const reportStatusText = {
   diproses_vendor: 'Pengembalian sedang diproses',
   barang_dikirim_ulang: 'Barang sudah dikirim ulang',
   closing: 'Tindak lanjut selesai',
-};
-
-const reportStatusSteps = ['dikirim_ke_vendor', 'diproses_vendor', 'barang_dikirim_ulang', 'closing'];
-
-const buildReportProgressSteps = (status) => {
-  const activeIndex = reportStatusSteps.indexOf(status);
-
-  return reportStatusSteps.map((step, index) => ({
-    key: step,
-    label: reportStatusText[step],
-    state: activeIndex === -1
-      ? 'upcoming'
-      : activeIndex > index
-        ? 'done'
-        : activeIndex === index
-          ? 'current'
-          : 'upcoming',
-  }));
 };
 
 const resolveVendorOrigin = (vendorUser) => (
@@ -139,27 +193,35 @@ const APPROVED_PRODUCT_NAMES = [
 ];
 
 const VendorDashboard = () => {
+  const initialUser = readJsonStorage('user', null);
+  const initialDashboardCache = readVendorDashboardCache(initialUser);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [shipmentStatusFilter, setShipmentStatusFilter] = useState('total');
-  const [shipments, setShipments] = useState([]);
+  const [shipments, setShipments] = useState(() => initialDashboardCache.shipments || []);
+  const [shipmentsMeta, setShipmentsMeta] = useState(() => initialDashboardCache.shipmentsMeta || emptyPaginationMeta);
+  const [shipmentsPage, setShipmentsPage] = useState(() => initialDashboardCache.shipmentsMeta?.current_page || 1);
   const [reportsData, setReportsData] = useState([]);
-  const [vendorOverview, setVendorOverview] = useState(null);
+  const [vendorOverview, setVendorOverview] = useState(() => initialDashboardCache.vendorOverview || null);
   const [authChecking, setAuthChecking] = useState(true);
   const [shipmentsLoading, setShipmentsLoading] = useState(false);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [reportsLoading, setReportsLoading] = useState(false);
-  const [vendorAnalytics, setVendorAnalytics] = useState(null);
+  const [vendorAnalytics, setVendorAnalytics] = useState(() => initialDashboardCache.vendorAnalytics || null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState(null);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [productOptions, setProductOptions] = useState([]);
   const [productsLoading, setProductsLoading] = useState(false);
-  const [warehouses, setWarehouses] = useState([]);
-  const [formErrors, setFormErrors] = useState({});
-  const [user, setUser] = useState(() => {
-    const userData = localStorage.getItem('user');
-    return userData ? JSON.parse(userData) : null;
+  const [warehouses, setWarehouses] = useState(() => {
+    try {
+      const cachedWarehouses = JSON.parse(localStorage.getItem('warehouseOptions') || '[]');
+      return Array.isArray(cachedWarehouses) ? cachedWarehouses : [];
+    } catch {
+      return [];
+    }
   });
+  const [formErrors, setFormErrors] = useState({});
+  const [user, setUser] = useState(initialUser);
   
   // Create Shipment State
   const [lokasiAsal, setLokasiAsal] = useState('');
@@ -214,7 +276,7 @@ const VendorDashboard = () => {
   const navigate = useNavigate();
   const vendorOrigin = resolveVendorOrigin(user);
   const hasPresetOrigin = Boolean(vendorOrigin);
-  const showVendorDashboardSkeleton = authChecking || (shipmentsLoading && shipments.length === 0 && !vendorOverview);
+  const showVendorDashboardSkeleton = authChecking;
   const showVendorShipmentsSkeleton = shipmentsLoading && shipments.length === 0;
   const showVendorReportsSkeleton = reportsLoading && reportsData.length === 0;
 
@@ -297,7 +359,7 @@ const VendorDashboard = () => {
     if (message) {
       sessionStorage.setItem('loginNotice', message);
     }
-    navigate('/login', { replace: true });
+    navigate('/login');
   };
 
   const ensureVendorSession = async ({ silent = false } = {}) => {
@@ -333,21 +395,34 @@ const VendorDashboard = () => {
     }
   };
 
-  const fetchShipments = async (session) => {
+  const fetchShipments = async (session, page = shipmentsPage, statusFilter = shipmentStatusFilter) => {
     try {
       setShipmentsLoading(true);
       const activeSession = session || await ensureVendorSession({ silent: true });
       if (!activeSession) {
         setShipments([]);
+        setShipmentsMeta(emptyPaginationMeta);
         return;
       }
 
       const response = await axios.get(`${API_BASE_URL}/api/outbound`, {
-        headers: activeSession.headers
+        headers: activeSession.headers,
+        params: getShipmentQueryParams(page, statusFilter),
       });
       const resData = response.data.data;
       const shipmentsArray = Array.isArray(resData) ? resData : (resData?.data || []);
-      setShipments(sortShipmentsByLatestDate(shipmentsArray));
+      const sortedShipments = sortShipmentsByLatestDate(shipmentsArray);
+      const nextMeta = getPaginationMeta(response.data);
+      setShipments(sortedShipments);
+      setShipmentsMeta(nextMeta);
+      setShipmentsPage(nextMeta.current_page);
+
+      if (page === 1 && statusFilter === 'total') {
+        writeVendorDashboardCache(activeSession.user?.ID_vendor, {
+          shipments: sortedShipments,
+          shipmentsMeta: nextMeta,
+        });
+      }
     } catch (error) {
       console.error('Error fetching shipments:', error);
     } finally {
@@ -366,7 +441,9 @@ const VendorDashboard = () => {
       const response = await axios.get(`${API_BASE_URL}/api/dashboard/vendor-overview`, {
         headers: activeSession.headers,
       });
-      setVendorOverview(response.data?.data || null);
+      const nextOverview = response.data?.data || null;
+      setVendorOverview(nextOverview);
+      writeVendorDashboardCache(activeSession.user?.ID_vendor, { vendorOverview: nextOverview });
     } catch (error) {
       console.error('Error fetching vendor overview:', error);
       setVendorOverview(null);
@@ -460,15 +537,46 @@ const VendorDashboard = () => {
         return;
       }
 
-      const response = await axios.get(`${API_BASE_URL}/api/master/gudang`, {
+      const response = await axios.get(`${API_BASE_URL}/api/gudang/options`, {
         headers: activeSession.headers,
       });
       const payload = response.data?.data;
-      setWarehouses(Array.isArray(payload) ? payload : (payload?.data || []));
+      const nextWarehouses = Array.isArray(payload) ? payload : (payload?.data || []);
+      setWarehouses(nextWarehouses);
+      localStorage.setItem('warehouseOptions', JSON.stringify(nextWarehouses));
     } catch (error) {
       console.error('Error fetching warehouses:', error);
-      setWarehouses([]);
+      try {
+        const cachedWarehouses = JSON.parse(localStorage.getItem('warehouseOptions') || '[]');
+        setWarehouses(Array.isArray(cachedWarehouses) ? cachedWarehouses : []);
+      } catch {
+        setWarehouses([]);
+      }
     }
+  };
+
+  const handleShipmentFilterChange = (nextFilter) => {
+    setShipmentStatusFilter(nextFilter);
+    setShipmentsPage(1);
+    const token = localStorage.getItem('token');
+    const storedUser = readJsonStorage('user', null);
+    const session = token && storedUser
+      ? { token, headers: { Authorization: `Bearer ${token}` }, user: storedUser }
+      : null;
+
+    void fetchShipments(session, 1, nextFilter);
+  };
+
+  const handleShipmentPageChange = (nextPage) => {
+    const boundedPage = Math.max(1, Math.min(Number(nextPage), shipmentsMeta.last_page || 1));
+    setShipmentsPage(boundedPage);
+    const token = localStorage.getItem('token');
+    const storedUser = readJsonStorage('user', null);
+    const session = token && storedUser
+      ? { token, headers: { Authorization: `Bearer ${token}` }, user: storedUser }
+      : null;
+
+    void fetchShipments(session, boundedPage, shipmentStatusFilter);
   };
 
   const handleMarkAsRead = async (id) => {
@@ -550,7 +658,9 @@ const VendorDashboard = () => {
       const res = await axios.get(`${API_BASE_URL}/api/dashboard/vendor-analytics`, {
         headers: activeSession.headers,
       });
-      setVendorAnalytics(normalizeAnalyticsResponse(res.data));
+      const nextAnalytics = normalizeAnalyticsResponse(res.data);
+      setVendorAnalytics(nextAnalytics);
+      writeVendorDashboardCache(activeSession.user?.ID_vendor, { vendorAnalytics: nextAnalytics });
     } catch (err) {
       setAnalyticsError(err.response?.data?.message || err.message || 'Failed to load analytics.');
     } finally {
@@ -566,10 +676,23 @@ const VendorDashboard = () => {
 
       initializedRef.current = true;
       setAuthChecking(true);
-      const session = await ensureVendorSession();
+      const { token, headers } = getAuthHeaders();
+      const storedUser = readJsonStorage('user', null);
+      const storedUserIsVendor = storedUser
+        && String(storedUser.role).toLowerCase() === 'vendor'
+        && storedUser.ID_vendor;
+      const session = token && storedUserIsVendor
+        ? { token, headers, user: storedUser }
+        : await ensureVendorSession();
+
       if (!session) {
         setAuthChecking(false);
         return;
+      }
+
+      if (storedUserIsVendor) {
+        setUser(storedUser);
+        void ensureVendorSession({ silent: true });
       }
 
       setAuthChecking(false);
@@ -672,20 +795,21 @@ const VendorDashboard = () => {
     }
   }, [vendorOrigin, lokasiAsal]);
 
-  const handleLogout = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (token) {
-        await axios.post(`${API_BASE_URL}/api/auth/logout`, {}, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-      }
-    } catch (e) {
-      console.error(e);
-    }
+  const handleLogout = () => {
+    const token = localStorage.getItem('token');
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    navigate('/login', { replace: true });
+    navigate('/login');
+
+    if (!token) {
+      return;
+    }
+
+    axios.post(`${API_BASE_URL}/api/auth/logout`, {}, {
+      headers: { Authorization: `Bearer ${token}` }
+    }).catch((e) => {
+      console.error(e);
+    });
   };
 
   const handleAddItem = () => {
@@ -792,11 +916,23 @@ const VendorDashboard = () => {
       return;
     }
 
+    if (!targetWarehouseId) {
+      setFormErrors({ targetWarehouseId: 'Pilih gudang tujuan terlebih dahulu.' });
+      openStatusModal('warning', 'Gudang tujuan wajib dipilih', 'Pilih gudang tujuan supaya shipment masuk ke antrian scanner yang benar.');
+      return;
+    }
+
     setFormErrors({});
     setSubmitLoading(true);
     try {
-      const session = await ensureVendorSession();
+      const { token, headers } = getAuthHeaders();
+      const storedUser = readJsonStorage('user', null);
+      const session = token && storedUser
+        ? { token, headers, user: storedUser }
+        : await ensureVendorSession();
+
       if (!session) {
+        setSubmitLoading(false);
         return;
       }
 
@@ -828,6 +964,7 @@ const VendorDashboard = () => {
         estimasi_tiba: estimasiTiba + ' 00:00:00',
         lokasi_asal: lokasiAsal,
         target_warehouse_id: Number(targetWarehouseId),
+        submit_now: Boolean(isSubmit && !editingDraftId),
         details: details
       };
 
@@ -842,15 +979,13 @@ const VendorDashboard = () => {
       const outboundId = res.data.data.ID_outbound;
 
       if (isSubmit) {
-        await axios.post(`${API_BASE_URL}/api/outbound/${outboundId}/submit`, {}, {
-          headers: session.headers
-        });
-        
-        // Fetch QR
-        const qrRes = await axios.get(`${API_BASE_URL}/api/outbound/${outboundId}/qr-token`, {
-          headers: session.headers
-        });
-        const fetchedTokens = normalizeQrTokens(qrRes.data);
+        const submitResponse = editingDraftId
+          ? await axios.post(`${API_BASE_URL}/api/outbound/${outboundId}/submit`, {}, {
+              headers: session.headers
+            })
+          : res;
+        const fetchedTokens = normalizeQrTokens(submitResponse.data);
+
         setQrTokens(fetchedTokens);
         setQrCache(prev => ({ ...prev, [outboundId]: fetchedTokens }));
         setSelectedShipmentId(outboundId);
@@ -868,17 +1003,18 @@ const VendorDashboard = () => {
       // Reset form
       resetShipmentForm(resolveVendorOrigin(session.user));
       setActiveTab('shipments');
-      await Promise.all([
+
+      void Promise.allSettled([
         fetchShipments(session),
         fetchVendorOverview(session),
         fetchVendorAnalytics(session),
       ]);
+      setSubmitLoading(false);
 
     } catch (error) {
       console.error(error);
       const apiMessage = error.response?.data?.message || error.message;
       openStatusModal('error', 'Shipment gagal disimpan', apiMessage);
-    } finally {
       setSubmitLoading(false);
     }
   };
@@ -1138,8 +1274,18 @@ const VendorDashboard = () => {
   };
 
   const handleOpenReport = async (reportId) => {
+    const existingReport = reportsData.find((report) => String(report.ID_dokumen) === String(reportId));
+    if (existingReport) {
+      setReportModalData(existingReport);
+    }
+
     try {
-      const session = await ensureVendorSession();
+      const { token, headers } = getAuthHeaders();
+      const storedUser = readJsonStorage('user', null);
+      const session = token && storedUser
+        ? { token, headers, user: storedUser }
+        : await ensureVendorSession();
+
       if (!session) {
         return;
       }
@@ -1155,8 +1301,24 @@ const VendorDashboard = () => {
   };
 
   const handleUpdateReportStatus = async (reportId, nextStatus) => {
+    const previousReports = reportsData;
+    const previousModalData = reportModalData;
+    const applyStatus = (report) => (
+      String(report?.ID_dokumen) === String(reportId)
+        ? { ...report, status_dokumen: nextStatus }
+        : report
+    );
+
+    setReportsData((currentReports) => currentReports.map(applyStatus));
+    setReportModalData((currentReport) => currentReport ? applyStatus(currentReport) : currentReport);
+
     try {
-      const session = await ensureVendorSession();
+      const { token, headers } = getAuthHeaders();
+      const storedUser = readJsonStorage('user', null);
+      const session = token && storedUser
+        ? { token, headers, user: storedUser }
+        : await ensureVendorSession();
+
       if (!session) {
         return;
       }
@@ -1170,9 +1332,12 @@ const VendorDashboard = () => {
       const updatedReport = response.data?.data || null;
       if (updatedReport) {
         setReportModalData(updatedReport);
+        setReportsData((currentReports) => currentReports.map((report) => (
+          String(report.ID_dokumen) === String(reportId) ? updatedReport : report
+        )));
       }
 
-      await Promise.all([
+      void Promise.allSettled([
         fetchReports(session),
         fetchNotifications(session),
       ]);
@@ -1184,6 +1349,8 @@ const VendorDashboard = () => {
           : 'Status dokumen berhasil diperbarui.';
       openStatusModal('success', 'Status laporan diperbarui', successMessage);
     } catch (error) {
+      setReportsData(previousReports);
+      setReportModalData(previousModalData);
       console.error('Error updating report status:', error);
       const message = error.response?.data?.message || 'Status dokumen belum bisa diperbarui saat ini.';
       openStatusModal('error', 'Status laporan gagal diperbarui', message);
@@ -1310,7 +1477,6 @@ const VendorDashboard = () => {
   const analyticsActionCards = buildActionQueueCards(analyticsModel.action_queue);
   const analyticsTrendData = buildTrendChartData(analyticsModel.trend_by_date);
   const analyticsPreviewAvailable = Boolean(vendorAnalytics) && !analyticsError;
-  const analyticsPending = analyticsLoading && !vendorAnalytics;
   const notificationPreviewItems = notifications.slice(0, 4);
   const primaryDashboardCards = buildVendorDashboardPrimaryCards(overviewCounts, qrReadiness);
   const heroMetrics = buildVendorDashboardHeroMetrics({
@@ -1600,7 +1766,7 @@ const VendorDashboard = () => {
                     <button className="btn btn-outline" onClick={() => setActiveTab('create-shipment')}>Buat shipment</button>
                   </div>
                   <div className="overview-card-body vendor-hero-panel">
-                    {showVendorDashboardSkeleton || analyticsPending ? (
+                    {showVendorDashboardSkeleton ? (
                       <>
                         <div className="vendor-hero-chip-row">
                           {Array.from({ length: 3 }).map((_, index) => (
@@ -1848,7 +2014,7 @@ const VendorDashboard = () => {
                 </div>
                 <div className="vendor-shipments-toolbar">
                   <div className="vendor-shipments-toolbar__filters">
-                    <select className="form-control vendor-shipments-filter" value={shipmentStatusFilter} onChange={(e) => setShipmentStatusFilter(e.target.value)}>
+                    <select className="form-control vendor-shipments-filter" value={shipmentStatusFilter} onChange={(e) => handleShipmentFilterChange(e.target.value)}>
                       <option value="total">Semua status</option>
                       <option value="draft">Belum dikirim</option>
                       <option value="shipping">Sedang dikirim</option>
@@ -1857,7 +2023,11 @@ const VendorDashboard = () => {
                     </select>
                   </div>
                   <div className="vendor-shipments-toolbar__summary">
-                    <span>{filteredShipments.length} shipment</span>
+                    <span>
+                      {shipmentsMeta.total > 0
+                        ? `${shipmentsMeta.from || 1}-${shipmentsMeta.to || filteredShipments.length} dari ${shipmentsMeta.total} shipment`
+                        : '0 shipment'}
+                    </span>
                   </div>
                 </div>
                 <table className="vendor-shipments-table">
@@ -1964,6 +2134,33 @@ const VendorDashboard = () => {
                     </tbody>
                   )}
                 </table>
+                {!showVendorShipmentsSkeleton && shipmentsMeta.last_page > 1 && (
+                  <div className="vendor-shipments-toolbar" style={{ justifyContent: 'space-between', borderTop: '1px solid var(--border-color)', marginTop: 0 }}>
+                    <div className="vendor-shipments-toolbar__summary">
+                      <span>Halaman {shipmentsMeta.current_page} dari {shipmentsMeta.last_page}</span>
+                    </div>
+                    <div className="vendor-shipment-row__actions">
+                      <AppButton
+                        type="button"
+                        variant="secondary"
+                        className="vendor-row-btn"
+                        disabled={shipmentsLoading || shipmentsMeta.current_page <= 1}
+                        onClick={() => handleShipmentPageChange(shipmentsMeta.current_page - 1)}
+                      >
+                        Sebelumnya
+                      </AppButton>
+                      <AppButton
+                        type="button"
+                        variant="secondary"
+                        className="vendor-row-btn"
+                        disabled={shipmentsLoading || shipmentsMeta.current_page >= shipmentsMeta.last_page}
+                        onClick={() => handleShipmentPageChange(shipmentsMeta.current_page + 1)}
+                      >
+                        Berikutnya
+                      </AppButton>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -2499,85 +2696,53 @@ const VendorDashboard = () => {
             <div className="vendor-report-sheet">
               <div className="vendor-report-head">
                 <div>
-                  <span>Nomor dokumen</span>
-                  <strong>{reportModalData.no_dokumen_r1 || 'Dokumen R1'}</strong>
+                  <span>Shipment</span>
+                  <strong>{reportModalData.discrepancy?.shipment?.no_pengiriman || `SHP-${reportModalData.discrepancy?.shipment?.ID_outbound || '-'}`}</strong>
                 </div>
-                <span className={`status-badge ${reportModalData.status_dokumen === 'closing' ? 'status-success' : reportModalData.status_dokumen === 'barang_dikirim_ulang' ? 'status-warning' : 'status-discrepancy'}`}>
-                  {reportStatusText[reportModalData.status_dokumen] || reportModalData.status_dokumen || 'Status dokumen'}
-                </span>
+                <span className="status-badge status-discrepancy">Instruksi manager</span>
               </div>
 
-              <div className="vendor-report-section">
-                <div className="vendor-report-section__title">Ringkasan dokumen</div>
-                <div className="shipment-detail-grid">
-                  <div>
-                    <span className="detail-label">Shipment</span>
-                    <strong>{reportModalData.discrepancy?.shipment?.no_pengiriman || `SHP-${reportModalData.discrepancy?.shipment?.ID_outbound || '-'}`}</strong>
-                  </div>
-                  <div>
-                    <span className="detail-label">Vendor</span>
-                    <strong>{reportModalData.discrepancy?.shipment?.vendor?.nama_vendor || '-'}</strong>
-                  </div>
-                  <div>
-                    <span className="detail-label">Asal</span>
-                    <strong>{reportModalData.discrepancy?.shipment?.lokasi_asal || '-'}</strong>
-                  </div>
-                  <div>
-                    <span className="detail-label">Waktu kirim</span>
-                    <strong>{formatDateTime(reportModalData.discrepancy?.shipment?.waktu_kirim)}</strong>
-                  </div>
-                  <div>
-                    <span className="detail-label">Dibuat pada</span>
-                    <strong>{formatDateTime(reportModalData.dibuat_at || reportModalData.created_at)}</strong>
-                  </div>
-                  <div>
-                    <span className="detail-label">Dibuat oleh</span>
-                    <strong>{reportModalData.pembuat?.nama || 'Manager'}</strong>
-                  </div>
+              <div className="shipment-detail-grid">
+                <div>
+                  <span className="detail-label">Vendor</span>
+                  <strong>{reportModalData.discrepancy?.shipment?.vendor?.nama_vendor || '-'}</strong>
+                </div>
+                <div>
+                  <span className="detail-label">Asal</span>
+                  <strong>{reportModalData.discrepancy?.shipment?.lokasi_asal || '-'}</strong>
+                </div>
+                <div>
+                  <span className="detail-label">Waktu kirim</span>
+                  <strong>{formatDateTime(reportModalData.discrepancy?.shipment?.waktu_kirim)}</strong>
+                </div>
+                <div>
+                  <span className="detail-label">Status dokumen</span>
+                  <strong>{reportStatusText[reportModalData.status_dokumen] || reportModalData.status_dokumen || '-'}</strong>
                 </div>
               </div>
 
-              <div className="vendor-report-section">
-                <div className="vendor-report-section__title">Ringkasan selisih</div>
-                <div className="vendor-report-mismatch">
-                  <div>
-                    <span>Produk</span>
-                    <strong>{reportModalData.discrepancy?.item?.nama_barang || '-'}</strong>
-                  </div>
-                  <div>
-                    <span>Ekspektasi</span>
-                    <strong>{reportModalData.discrepancy?.quantity_outbound ?? '-'}</strong>
-                  </div>
-                  <div>
-                    <span>Diterima</span>
-                    <strong>{reportModalData.discrepancy?.quantity_inbound ?? '-'}</strong>
-                  </div>
-                  <div>
-                    <span>Selisih</span>
-                    <strong style={{ color: '#dc2626' }}>{reportModalData.discrepancy?.selisih ?? '-'}</strong>
-                  </div>
+              <div className="vendor-report-mismatch">
+                <div>
+                  <span>Produk</span>
+                  <strong>{reportModalData.discrepancy?.item?.nama_barang || '-'}</strong>
+                </div>
+                <div>
+                  <span>Ekspektasi</span>
+                  <strong>{reportModalData.discrepancy?.quantity_outbound ?? '-'}</strong>
+                </div>
+                <div>
+                  <span>Diterima</span>
+                  <strong>{reportModalData.discrepancy?.quantity_inbound ?? '-'}</strong>
+                </div>
+                <div>
+                  <span>Selisih</span>
+                  <strong style={{ color: '#dc2626' }}>{reportModalData.discrepancy?.selisih ?? '-'}</strong>
                 </div>
               </div>
 
-              <div className="vendor-report-section">
-                <div className="vendor-report-section__title">Progress tindak lanjut</div>
-                <div className="vendor-report-progress">
-                  {buildReportProgressSteps(reportModalData.status_dokumen).map((step, index) => (
-                    <div key={step.key} className={`vendor-report-progress__step is-${step.state}`}>
-                      <div className="vendor-report-progress__index">{index + 1}</div>
-                      <div className="vendor-report-progress__content">
-                        <strong>{step.label}</strong>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="vendor-report-section">
-                <div className="vendor-report-section__title">Instruksi manager</div>
-                <div className="vendor-report-notes">
-                  <p>{reportModalData.keterangan || '-'}</p>
-                </div>
+              <div className="vendor-report-notes">
+                <span>Instruksi manager</span>
+                <p>{reportModalData.keterangan || '-'}</p>
               </div>
             </div>
 

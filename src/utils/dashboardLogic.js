@@ -236,30 +236,25 @@ export const buildVendorDashboardPrimaryCards = (shipments = [], qrReadiness = {
 
 export const buildVendorDashboardHeroMetrics = ({
   overviewCounts = {},
-  analytics = {},
   discrepancyAlert = {},
 } = {}) => {
-  const latestTrend = Array.isArray(analytics?.trend_by_date) && analytics.trend_by_date.length > 0
-    ? analytics.trend_by_date[0]
-    : null;
-
   return [
     {
       key: 'verified',
       label: 'Verified',
-      value: Number(latestTrend?.shipments_currently_verified ?? overviewCounts.delivered ?? 0),
+      value: Number(overviewCounts.verified ?? overviewCounts.status_distribution?.verified ?? 0),
       tone: 'success',
     },
     {
       key: 'discrepancy',
       label: 'With discrepancy',
-      value: Number(discrepancyAlert.total_non_match ?? latestTrend?.shipments_with_discrepancy ?? 0),
+      value: Number(overviewCounts.discrepancy ?? 0),
       tone: 'danger',
     },
     {
       key: 'pending_review',
       label: 'Pending review',
-      value: Number(latestTrend?.pending_review ?? analytics?.action_queue?.pending_discrepancy_review ?? 0),
+      value: Number(discrepancyAlert.pending_review ?? 0),
       tone: 'warning',
     },
   ];
@@ -307,29 +302,24 @@ export const buildManagerDashboardPrimaryCards = (shipments = [], pendingReview 
 export const buildManagerDashboardHeroMetrics = ({
   shipmentCounts = {},
   pendingCount = 0,
-  analytics = {},
 } = {}) => {
-  const latestTrend = Array.isArray(analytics?.trend_by_date) && analytics.trend_by_date.length > 0
-    ? analytics.trend_by_date[0]
-    : null;
-
   return [
     {
       key: 'verified',
       label: 'Verified',
-      value: Number(latestTrend?.shipments_currently_verified ?? shipmentCounts.delivered ?? 0),
+      value: Number(shipmentCounts.verified ?? shipmentCounts.status_distribution?.verified ?? 0),
       tone: 'success',
     },
     {
       key: 'discrepancy',
       label: 'With discrepancy',
-      value: Number(shipmentCounts.discrepancy ?? latestTrend?.shipments_with_discrepancy ?? 0),
+      value: Number(shipmentCounts.discrepancy ?? 0),
       tone: 'danger',
     },
     {
       key: 'pending_review',
       label: 'Pending review',
-      value: Number(latestTrend?.pending_review ?? pendingCount ?? 0),
+      value: Number(pendingCount ?? 0),
       tone: 'warning',
     },
   ];

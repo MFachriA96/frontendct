@@ -21,6 +21,27 @@ import './ManagerDashboard.css';
 
 const LazyAnalyticsTrendChart = lazy(() => import('../components/AnalyticsTrendChart'));
 
+const readJsonStorage = (key, fallback) => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+    return parsed ?? fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const managerCacheKey = (scope) => `managerDashboardCache:${scope || 'all'}`;
+
+const writeManagerCache = (scope, patch) => {
+  const key = managerCacheKey(scope);
+  const current = readJsonStorage(key, {});
+  localStorage.setItem(key, JSON.stringify({
+    ...current,
+    ...patch,
+    cached_at: new Date().toISOString(),
+  }));
+};
+
 const ManagerKpiSkeleton = ({ count = 4 }) => (
   <div className="stats-kpi-container">
     {Array.from({ length: count }).map((_, index) => (
@@ -53,25 +74,24 @@ const ManagerTableSkeleton = ({ columns = 6, rows = 5 }) => (
 const ManagerDashboard = () => {
   const [activeSidebar, setActiveSidebar] = useState('dashboard');
   const [shipmentStatusFilter, setShipmentStatusFilter] = useState('total');
-  const [user] = useState(() => {
-    const userData = localStorage.getItem('user');
-    return userData ? JSON.parse(userData) : null;
-  });
+  const [user] = useState(() => readJsonStorage('user', null));
+  const initialWarehouseScope = user?.ID_gudang ? 'default' : 'all';
+  const initialManagerCache = readJsonStorage(managerCacheKey(initialWarehouseScope), {});
   const [loading, setLoading] = useState(false);
 
   // Data State
-  const [shipments, setShipments] = useState([]);
-  const [discrepancies, setDiscrepancies] = useState([]);
-  const [managerOverview, setManagerOverview] = useState(null);
-  const [analyticsData, setAnalyticsData] = useState([]);
-  const [reportsData, setReportsData] = useState([]);
+  const [shipments, setShipments] = useState(() => initialManagerCache.shipments || []);
+  const [discrepancies, setDiscrepancies] = useState(() => initialManagerCache.discrepancies || []);
+  const [managerOverview, setManagerOverview] = useState(() => initialManagerCache.managerOverview || null);
+  const [analyticsData, setAnalyticsData] = useState(() => initialManagerCache.analyticsData || []);
+  const [reportsData, setReportsData] = useState(() => initialManagerCache.reportsData || []);
   const [dashboardLoading, setDashboardLoading] = useState(true);
-  const [managerAnalytics, setManagerAnalytics] = useState(null);
+  const [managerAnalytics, setManagerAnalytics] = useState(() => initialManagerCache.managerAnalytics || null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState(null);
   const [secondaryLoading, setSecondaryLoading] = useState(false);
-  const [warehouses, setWarehouses] = useState([]);
-  const [warehouseScope, setWarehouseScope] = useState(() => (user?.ID_gudang ? 'default' : 'all'));
+  const [warehouses, setWarehouses] = useState(() => readJsonStorage('warehouseOptions', []));
+  const [warehouseScope, setWarehouseScope] = useState(initialWarehouseScope);
 
   // Modal State
   const [resolveModalData, setResolveModalData] = useState(null);
@@ -94,7 +114,6 @@ const ManagerDashboard = () => {
     barang_dikirim_ulang: 'Barang sudah dikirim ulang',
     closing: 'Tindak lanjut selesai',
   };
-  const reportStatusSteps = ['dikirim_ke_vendor', 'diproses_vendor', 'barang_dikirim_ulang', 'closing'];
 
   const navigate = useNavigate();
 
@@ -114,39 +133,28 @@ const ManagerDashboard = () => {
 
   const normalizeOverviewResponse = (data) => data?.data || null;
 
-  const buildReportProgressSteps = (status) => {
-    const activeIndex = reportStatusSteps.indexOf(status);
-
-    return reportStatusSteps.map((step, index) => ({
-      key: step,
-      label: reportStatusText[step],
-      state: activeIndex === -1
-        ? 'upcoming'
-        : activeIndex > index
-          ? 'done'
-          : activeIndex === index
-            ? 'current'
-            : 'upcoming',
-    }));
-  };
-
   const fetchData = useCallback(async ({ includeSecondary = true } = {}) => {
     const token = localStorage.getItem('token');
     const headers = { Authorization: `Bearer ${token}` };
     const params = buildWarehouseScopedParams(warehouseScope);
+    const discrepancyParams = { ...params, include_photos: true };
 
     setDashboardLoading(true);
 
     const [overviewResult, outboundResult, discrepancyResult] = await Promise.allSettled([
       axios.get(`${API_BASE_URL}/api/dashboard/manager-overview`, { headers, params }),
       axios.get(`${API_BASE_URL}/api/outbound`, { headers, params }),
-      axios.get(`${API_BASE_URL}/api/discrepancy`, { headers, params })
+      axios.get(`${API_BASE_URL}/api/discrepancy`, { headers, params: discrepancyParams })
     ]);
 
     if (overviewResult.status === 'fulfilled') {
       const overview = normalizeOverviewResponse(overviewResult.value.data);
       setManagerOverview(overview);
       setAnalyticsData(overview?.vendor_performance || []);
+      writeManagerCache(warehouseScope, {
+        managerOverview: overview,
+        analyticsData: overview?.vendor_performance || [],
+      });
     } else {
       console.error('Error fetching manager overview:', overviewResult.reason);
       setManagerOverview(null);
@@ -154,13 +162,17 @@ const ManagerDashboard = () => {
     }
 
     if (outboundResult.status === 'fulfilled') {
-      setShipments(normalizeListResponse(outboundResult.value.data));
+      const nextShipments = normalizeListResponse(outboundResult.value.data);
+      setShipments(nextShipments);
+      writeManagerCache(warehouseScope, { shipments: nextShipments });
     } else {
       console.error('Error fetching outbound shipments:', outboundResult.reason);
     }
 
     if (discrepancyResult.status === 'fulfilled') {
-      setDiscrepancies(normalizeListResponse(discrepancyResult.value.data));
+      const nextDiscrepancies = normalizeListResponse(discrepancyResult.value.data);
+      setDiscrepancies(nextDiscrepancies);
+      writeManagerCache(warehouseScope, { discrepancies: nextDiscrepancies });
     } else {
       console.error('Error fetching discrepancies:', discrepancyResult.reason);
     }
@@ -177,7 +189,9 @@ const ManagerDashboard = () => {
     ]);
 
     if (reportsResult.status === 'fulfilled') {
-      setReportsData(normalizeListResponse(reportsResult.value.data));
+      const nextReports = normalizeListResponse(reportsResult.value.data);
+      setReportsData(nextReports);
+      writeManagerCache(warehouseScope, { reportsData: nextReports });
     } else {
       console.error('Error fetching vendor reports:', reportsResult.reason);
     }
@@ -205,7 +219,9 @@ const ManagerDashboard = () => {
       const res = await axios.get(`${API_BASE_URL}/api/dashboard/manager-analytics${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setManagerAnalytics(normalizeAnalyticsResponse(res.data));
+      const nextAnalytics = normalizeAnalyticsResponse(res.data);
+      setManagerAnalytics(nextAnalytics);
+      writeManagerCache(warehouseScope, { managerAnalytics: nextAnalytics });
     } catch (err) {
       setAnalyticsError(err.response?.data?.message || err.message || 'Gagal memuat analitik.');
     } finally {
@@ -220,7 +236,9 @@ const ManagerDashboard = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       const payload = response.data?.data;
-      setWarehouses(Array.isArray(payload) ? payload : (payload?.data || []));
+      const nextWarehouses = Array.isArray(payload) ? payload : (payload?.data || []);
+      setWarehouses(nextWarehouses);
+      localStorage.setItem('warehouseOptions', JSON.stringify(nextWarehouses));
     } catch (error) {
       console.error('Error fetching warehouses:', error);
       setWarehouses([]);
@@ -228,6 +246,17 @@ const ManagerDashboard = () => {
   }, []);
 
   useEffect(() => {
+    const cached = readJsonStorage(managerCacheKey(warehouseScope), {});
+
+    if (cached.managerOverview || cached.shipments || cached.discrepancies || cached.managerAnalytics) {
+      setManagerOverview(cached.managerOverview || null);
+      setAnalyticsData(cached.analyticsData || []);
+      setShipments(cached.shipments || []);
+      setDiscrepancies(cached.discrepancies || []);
+      setReportsData(cached.reportsData || []);
+      setManagerAnalytics(cached.managerAnalytics || null);
+    }
+
     Promise.resolve().then(() => {
       void fetchData();
       void fetchManagerAnalytics();
@@ -240,20 +269,19 @@ const ManagerDashboard = () => {
     });
   }, [fetchWarehouses]);
 
-  const handleLogout = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (token) {
-        await axios.post(`${API_BASE_URL}/api/auth/logout`, {}, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-      }
-    } catch (error) {
-      console.error(error);
-    }
+  const handleLogout = () => {
+    const token = localStorage.getItem('token');
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    navigate('/login', { replace: true });
+    navigate('/login');
+
+    if (token) {
+      axios.post(`${API_BASE_URL}/api/auth/logout`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      }).catch((error) => {
+        console.error(error);
+      });
+    }
   };
 
   const handleResolve = async () => {
@@ -380,7 +408,6 @@ const ManagerDashboard = () => {
   const analyticsModel = managerAnalytics || normalizeAnalyticsResponse(null);
   const analyticsTrendData = buildTrendChartData(analyticsModel.trend_by_date);
   const analyticsPreviewAvailable = Boolean(managerAnalytics) && !analyticsError;
-  const analyticsPending = analyticsLoading && !managerAnalytics;
   const managerPrimaryCards = buildManagerDashboardPrimaryCards(shipmentCounts, pendingCount);
   const managerHeroMetrics = buildManagerDashboardHeroMetrics({
     shipmentCounts,
@@ -402,6 +429,11 @@ const ManagerDashboard = () => {
     Delivered: 'Selesai diverifikasi',
     'Pending Review': 'Shipment bermasalah',
   };
+  const getDiscrepancyPhotos = (discrepancy) => (
+    Array.isArray(discrepancy?.inbound_detail?.audit_photos)
+      ? discrepancy.inbound_detail.audit_photos
+      : []
+  );
 
   const getStatusBadge = (status) => {
     switch (status) {
@@ -441,19 +473,6 @@ const ManagerDashboard = () => {
     }), { quantity: 0, boxes: 0 });
   };
 
-  const getShipmentStatusLabel = (status) => {
-    switch (status) {
-      case 'verified': return 'Sudah diverifikasi';
-      case 'delivered': return 'Selesai';
-      case 'discrepancy': return 'Perlu tindak lanjut';
-      case 'in_transit': return 'Dalam perjalanan';
-      case 'draft': return 'Draft';
-      case 'submitted': return 'Sudah dikirim';
-      case 'arrived': return 'Sudah tiba';
-      default: return String(status || 'Tidak diketahui').replace(/_/g, ' ');
-    }
-  };
-
   const escapeCsvValue = (value) => {
     const stringValue = value === null || value === undefined ? '' : String(value);
     return `"${stringValue.replace(/"/g, '""')}"`;
@@ -462,37 +481,37 @@ const ManagerDashboard = () => {
   const handleExportReport = () => {
     const generatedAt = new Date();
     const rows = [
-      ['Laporan Verifikasi Manager Epson'],
-      ['Dibuat pada', formatDateTime(generatedAt)],
+      ['Epson Verification Manager Report'],
+      ['Generated At', formatDateTime(generatedAt)],
       [],
-      ['Ringkasan'],
-      ['Metrik', 'Nilai'],
-      ['Total shipment', shipmentCounts.total],
-      ['Dalam pengiriman', shipmentCounts.shipping],
-      ['Selesai diverifikasi', shipmentCounts.delivered],
-      ['Shipment bermasalah', shipmentCounts.discrepancy],
-      ['Item cocok', discrepancyStatusCounts.match],
-      ['Perlu keputusan', pendingCount],
+      ['Summary'],
+      ['Metric', 'Value'],
+      ['Total Shipments', shipmentCounts.total],
+      ['Shipping', shipmentCounts.shipping],
+      ['Delivered', shipmentCounts.delivered],
+      ['Shipment Discrepancy', shipmentCounts.discrepancy],
+      ['Items Matched', discrepancyStatusCounts.match],
+      ['Pending Review', pendingCount],
       [],
-      ['Ringkasan shipment'],
-      ['ID Shipment', 'Nomor Pengiriman', 'Vendor', 'Asal', 'Status', 'Dibuat Pada', 'Waktu Kirim', 'Estimasi Tiba'],
+      ['Shipment Overview'],
+      ['Shipment ID', 'Delivery Number', 'Vendor', 'Origin', 'Status', 'Created At', 'Dispatch Time', 'Estimated Arrival'],
       ...shipments.map(shipment => [
         `SHP-${shipment.ID_outbound}`,
         shipment.no_pengiriman || '',
         shipment.vendor?.nama_vendor || `Vendor ${shipment.ID_vendor || '-'}`,
         shipment.lokasi_asal || '',
-        getShipmentStatusLabel(shipment.status),
+        shipment.status || '',
         formatDateTime(shipment.created_at),
         formatDateTime(shipment.waktu_kirim),
         formatDateTime(shipment.estimasi_tiba),
       ]),
       [],
-      ['Tinjauan selisih'],
-      ['ID Selisih', 'Item', 'Status', 'Qty Ekspektasi', 'Qty Diterima', 'Selisih', 'Terdeteksi Pada'],
+      ['Discrepancy Review'],
+      ['Discrepancy ID', 'Item', 'Status', 'Expected Qty', 'Received Qty', 'Difference', 'Detected At'],
       ...discrepancies.map(discrepancy => [
         `DISC-${discrepancy.ID_discrepancy}`,
         discrepancy.outbound_detail?.barang?.nama_barang || `Outbound Detail ${discrepancy.ID_outbound_detail}`,
-        String(discrepancy.status || '').replace(/_/g, ' ') || 'Tidak diketahui',
+        discrepancy.status || '',
         discrepancy.quantity_outbound ?? '',
         discrepancy.quantity_inbound ?? '',
         discrepancy.selisih ?? '',
@@ -709,7 +728,7 @@ const ManagerDashboard = () => {
                     </button>
                   </div>
 
-                  {showManagerDashboardSkeleton || analyticsPending ? (
+                  {showManagerDashboardSkeleton ? (
                     <>
                       <div className="manager-visual-chip-row">
                         {Array.from({ length: 3 }).map((_, index) => (
@@ -1022,6 +1041,23 @@ const ManagerDashboard = () => {
                       <div><span>Diterima</span><strong>{disc.quantity_inbound ?? '-'}</strong></div>
                       <div><span>Selisih</span><strong>{disc.selisih ?? '-'}</strong></div>
                     </div>
+                    <div className="manager-evidence-strip">
+                      <span>Foto barang</span>
+                      {getDiscrepancyPhotos(disc).length > 0 ? (
+                        <div className="manager-evidence-thumbs">
+                          {getDiscrepancyPhotos(disc).slice(0, 3).map((photo) => (
+                            <a key={photo.ID_foto || photo.file_url} href={photo.file_url} target="_blank" rel="noreferrer">
+                              <img src={photo.file_url} alt="Foto barang verifikasi" />
+                            </a>
+                          ))}
+                          {getDiscrepancyPhotos(disc).length > 3 && (
+                            <em>+{getDiscrepancyPhotos(disc).length - 3}</em>
+                          )}
+                        </div>
+                      ) : (
+                        <strong>No photo attached</strong>
+                      )}
+                    </div>
                     <div className="verification-footer">
                       <span>{formatDateTime(disc.created_at)}</span>
                       {disc.status !== 'match' && (
@@ -1086,6 +1122,23 @@ const ManagerDashboard = () => {
                           <span className="num-label">Selisih</span>
                           <span className="num-val">{disc.selisih}</span>
                         </div>
+                      </div>
+                      <div className="manager-evidence-strip manager-evidence-strip--review">
+                        <span>Foto barang</span>
+                        {getDiscrepancyPhotos(disc).length > 0 ? (
+                          <div className="manager-evidence-thumbs">
+                            {getDiscrepancyPhotos(disc).slice(0, 4).map((photo) => (
+                              <a key={photo.ID_foto || photo.file_url} href={photo.file_url} target="_blank" rel="noreferrer">
+                                <img src={photo.file_url} alt="Foto barang verifikasi" />
+                              </a>
+                            ))}
+                            {getDiscrepancyPhotos(disc).length > 4 && (
+                              <em>+{getDiscrepancyPhotos(disc).length - 4}</em>
+                            )}
+                          </div>
+                        ) : (
+                          <strong>No photo attached</strong>
+                        )}
                       </div>
                       <button className="btn btn-primary btn-block mt-3" onClick={() => setResolveModalData(disc)}>
                         <i className="fa-solid fa-file-contract"></i> Selesaikan Selisih
@@ -1212,6 +1265,24 @@ const ManagerDashboard = () => {
                 </div>
               </div>
 
+              <div className="manager-modal-evidence">
+                <div className="manager-modal-evidence__head">
+                  <span>Foto barang</span>
+                  <strong>{getDiscrepancyPhotos(resolveModalData).length ? `${getDiscrepancyPhotos(resolveModalData).length} foto terlampir` : 'No photo attached'}</strong>
+                </div>
+                {getDiscrepancyPhotos(resolveModalData).length > 0 ? (
+                  <div className="manager-modal-evidence__grid">
+                    {getDiscrepancyPhotos(resolveModalData).map((photo) => (
+                      <a key={photo.ID_foto || photo.file_url} href={photo.file_url} target="_blank" rel="noreferrer">
+                        <img src={photo.file_url} alt="Foto barang verifikasi" />
+                      </a>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="manager-modal-evidence__empty">No photo attached for this verification.</div>
+                )}
+              </div>
+
               <div className="form-group mt-3">
                 <label>Tindakan penyelesaian</label>
                 <div className="radio-group-vertical">
@@ -1262,81 +1333,50 @@ const ManagerDashboard = () => {
               <div className="report-preview-sheet">
                 <div className="report-preview-head">
                   <div>
-                    <span>Nomor dokumen</span>
-                    <strong>{reportModalData.no_dokumen_r1 || 'Dokumen R1'}</strong>
+                    <span>Vendor</span>
+                    <strong>{reportModalData.discrepancy?.shipment?.vendor?.nama_vendor || '-'}</strong>
                   </div>
-                  <span className={`status-badge ${reportModalData.status_dokumen === 'closing' ? 'status-success' : reportModalData.status_dokumen === 'barang_dikirim_ulang' ? 'status-warning' : 'status-danger'}`}>
-                    {reportStatusText[reportModalData.status_dokumen] || reportModalData.status_dokumen || 'Status dokumen'}
-                  </span>
+                  <span className="status-badge status-danger">Instruksi tindak lanjut</span>
                 </div>
-                <div className="report-preview-section">
-                  <div className="report-preview-section__title">Ringkasan dokumen</div>
-                  <div className="shipment-detail-grid">
-                    <div>
-                      <span>Shipment</span>
-                      <strong>{reportModalData.discrepancy?.shipment?.no_pengiriman || `SHP-${reportModalData.discrepancy?.shipment?.ID_outbound || '-'}`}</strong>
-                    </div>
-                    <div>
-                      <span>Vendor</span>
-                      <strong>{reportModalData.discrepancy?.shipment?.vendor?.nama_vendor || '-'}</strong>
-                    </div>
-                    <div>
-                      <span>Asal</span>
-                      <strong>{reportModalData.discrepancy?.shipment?.lokasi_asal || '-'}</strong>
-                    </div>
-                    <div>
-                      <span>Waktu kirim</span>
-                      <strong>{formatDateTime(reportModalData.discrepancy?.shipment?.waktu_kirim)}</strong>
-                    </div>
-                    <div>
-                      <span>Dibuat pada</span>
-                      <strong>{formatDateTime(reportModalData.dibuat_at || reportModalData.created_at)}</strong>
-                    </div>
-                    <div>
-                      <span>Dibuat oleh</span>
-                      <strong>{reportModalData.pembuat?.nama || 'Manager'}</strong>
-                    </div>
+                <div className="shipment-detail-grid">
+                  <div>
+                    <span>Shipment</span>
+                    <strong>{reportModalData.discrepancy?.shipment?.no_pengiriman || `SHP-${reportModalData.discrepancy?.shipment?.ID_outbound || '-'}`}</strong>
+                  </div>
+                  <div>
+                    <span>Origin</span>
+                    <strong>{reportModalData.discrepancy?.shipment?.lokasi_asal || '-'}</strong>
+                  </div>
+                  <div>
+                    <span>Waktu kirim</span>
+                    <strong>{formatDateTime(reportModalData.discrepancy?.shipment?.waktu_kirim)}</strong>
+                  </div>
+                  <div>
+                    <span>Status dokumen</span>
+                      <strong>{(reportStatusText[reportModalData.status_dokumen] || reportModalData.status_dokumen || '-').toUpperCase()}</strong>
                   </div>
                 </div>
-                <div className="report-preview-section">
-                  <div className="report-preview-section__title">Ringkasan selisih</div>
-                  <div className="report-mismatch-row">
-                    <div>
-                      <span>Produk</span>
-                      <strong>{reportModalData.discrepancy?.item?.nama_barang || '-'}</strong>
-                    </div>
-                    <div>
-                      <span>Ekspektasi</span>
-                      <strong>{reportModalData.discrepancy?.quantity_outbound ?? '-'}</strong>
-                    </div>
-                    <div>
-                      <span>Diterima</span>
-                      <strong>{reportModalData.discrepancy?.quantity_inbound ?? '-'}</strong>
-                    </div>
-                    <div>
-                      <span>Selisih</span>
-                      <strong className="text-danger">{reportModalData.discrepancy?.selisih ?? '-'}</strong>
-                    </div>
+                <div className="report-mismatch-row">
+                  <div>
+                    <span>Produk</span>
+                    <strong>{reportModalData.discrepancy?.item?.nama_barang || '-'}</strong>
+                  </div>
+                  <div>
+                    <span>Ekspektasi</span>
+                    <strong>{reportModalData.discrepancy?.quantity_outbound ?? '-'}</strong>
+                  </div>
+                  <div>
+                    <span>Diterima</span>
+                    <strong>{reportModalData.discrepancy?.quantity_inbound ?? '-'}</strong>
+                  </div>
+                  <div>
+                    <span>Selisih</span>
+                    <strong className="text-danger">{reportModalData.discrepancy?.selisih ?? '-'}</strong>
                   </div>
                 </div>
-                <div className="report-preview-section">
-                  <div className="report-preview-section__title">Progress tindak lanjut</div>
-                  <div className="report-progress">
-                    {buildReportProgressSteps(reportModalData.status_dokumen).map((step, index) => (
-                      <div key={step.key} className={`report-progress__step is-${step.state}`}>
-                        <div className="report-progress__index">{index + 1}</div>
-                        <div className="report-progress__content">
-                          <strong>{step.label}</strong>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="report-preview-section">
-                  <div className="report-preview-section__title">Instruksi manager</div>
-                  <div className="report-notes">
-                    <p>{reportModalData.keterangan || '-'}</p>
-                  </div>
+                <div className="report-notes">
+                  <span>Instruksi manager</span>
+                  <p>{reportModalData.keterangan || '-'}</p>
                 </div>
               </div>
             </div>

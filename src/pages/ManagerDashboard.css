@@ -1389,6 +1389,62 @@ body {
     font-size: 1.2rem;
 }
 
+.manager-evidence-strip {
+    background: var(--bg-main);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    display: grid;
+    gap: 0.55rem;
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+}
+
+.manager-evidence-strip > span {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.manager-evidence-strip > strong {
+    color: var(--text-muted);
+    font-size: 0.84rem;
+}
+
+.manager-evidence-strip--review {
+    margin-top: 1rem;
+}
+
+.manager-evidence-thumbs {
+    align-items: stretch;
+    display: grid;
+    gap: 0.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+}
+
+.manager-evidence-thumbs a {
+    background: #eef3f9;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    display: block;
+    height: 84px;
+    overflow: hidden;
+    width: 100%;
+}
+
+.manager-evidence-thumbs img {
+    height: 100%;
+    object-fit: cover;
+    width: 100%;
+}
+
+.manager-evidence-thumbs em {
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    font-style: normal;
+    font-weight: 700;
+}
+
 .verification-footer {
     display: flex;
     align-items: center;
@@ -1396,6 +1452,64 @@ body {
     gap: 1rem;
     color: var(--text-muted);
     font-size: 0.82rem;
+}
+
+.manager-modal-evidence {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    margin-bottom: 1rem;
+    padding: 1rem;
+}
+
+.manager-modal-evidence__head {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.manager-modal-evidence__head span {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.manager-modal-evidence__head strong {
+    color: var(--text-main);
+    font-size: 0.9rem;
+}
+
+.manager-modal-evidence__grid {
+    display: grid;
+    gap: 0.6rem;
+    grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+}
+
+.manager-modal-evidence__grid a {
+    aspect-ratio: 1;
+    background: #eef3f9;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    display: block;
+    overflow: hidden;
+}
+
+.manager-modal-evidence__grid img {
+    height: 100%;
+    object-fit: cover;
+    width: 100%;
+}
+
+.manager-modal-evidence__empty {
+    background: var(--bg-main);
+    border: 1px dashed var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    padding: 0.9rem;
+    text-align: center;
 }
 
 .standalone-review-grid {
@@ -1640,11 +1754,9 @@ body {
 
 .manager-dashboard .report-preview-sheet {
     border: 1px solid var(--border-color);
-    border-radius: 20px;
+    border-radius: var(--radius-md);
     background: #ffffff;
     padding: 1.2rem;
-    display: grid;
-    gap: 1rem;
 }
 
 .manager-dashboard .report-preview-head {
@@ -1655,18 +1767,6 @@ body {
     padding-bottom: 1rem;
     margin-bottom: 1rem;
     border-bottom: 2px solid var(--primary);
-}
-
-.manager-dashboard .report-preview-section {
-    display: grid;
-    gap: 0.8rem;
-}
-
-.manager-dashboard .report-preview-section__title {
-    color: var(--text-main);
-    font-size: 0.92rem;
-    font-weight: 800;
-    letter-spacing: -0.02em;
 }
 
 .manager-dashboard .report-preview-head span,
@@ -1686,66 +1786,11 @@ body {
     font-size: 1.25rem;
 }
 
-.manager-dashboard .report-progress {
-    display: grid;
-    gap: 0.75rem;
-}
-
-.manager-dashboard .report-progress__step {
-    align-items: center;
-    background: var(--bg-main);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    display: grid;
-    gap: 0.75rem;
-    grid-template-columns: 40px minmax(0, 1fr);
-    padding: 0.9rem;
-}
-
-.manager-dashboard .report-progress__step.is-current {
-    background: rgba(var(--brand-navy-rgb), 0.06);
-    border-color: rgba(var(--brand-navy-rgb), 0.22);
-}
-
-.manager-dashboard .report-progress__step.is-done {
-    background: #ecfdf5;
-    border-color: #bbf7d0;
-}
-
-.manager-dashboard .report-progress__index {
-    align-items: center;
-    background: #dbe4f3;
-    border-radius: 999px;
-    color: var(--text-main);
-    display: inline-flex;
-    font-size: 0.82rem;
-    font-weight: 800;
-    height: 40px;
-    justify-content: center;
-    width: 40px;
-}
-
-.manager-dashboard .report-progress__step.is-current .report-progress__index {
-    background: var(--brand-navy);
-    color: #ffffff;
-}
-
-.manager-dashboard .report-progress__step.is-done .report-progress__index {
-    background: #16a34a;
-    color: #ffffff;
-}
-
-.manager-dashboard .report-progress__content strong {
-    color: var(--text-main);
-    display: block;
-    font-size: 0.92rem;
-    line-height: 1.35;
-}
-
 .manager-dashboard .report-mismatch-row {
     display: grid;
     grid-template-columns: 2fr repeat(3, 1fr);
     gap: 0.75rem;
+    margin-bottom: 1rem;
 }
 
 .manager-dashboard .report-mismatch-row > div,

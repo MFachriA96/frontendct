@@ -1941,11 +1941,9 @@
 
 .vendor-dashboard .vendor-report-sheet {
   border: 1px solid #e2e8f0;
-  border-radius: 20px;
-  padding: 20px;
+  border-radius: 8px;
+  padding: 18px;
   background: #ffffff;
-  display: grid;
-  gap: 18px;
 }
 
 .vendor-dashboard .vendor-report-head {
@@ -1956,18 +1954,6 @@
   margin-bottom: 18px;
   padding-bottom: 14px;
   border-bottom: 2px solid var(--primary-blue);
-}
-
-.vendor-dashboard .vendor-report-section {
-  display: grid;
-  gap: 12px;
-}
-
-.vendor-dashboard .vendor-report-section__title {
-  color: var(--text-dark);
-  font-size: 0.9rem;
-  font-weight: 800;
-  letter-spacing: -0.02em;
 }
 
 .vendor-dashboard .vendor-report-head span:not(.status-badge),
@@ -1987,72 +1973,17 @@
   font-size: 1.15rem;
 }
 
-.vendor-dashboard .vendor-report-progress {
-  display: grid;
-  gap: 10px;
-}
-
-.vendor-dashboard .vendor-report-progress__step {
-  align-items: center;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 16px;
-  display: grid;
-  gap: 12px;
-  grid-template-columns: 38px minmax(0, 1fr);
-  padding: 12px 14px;
-}
-
-.vendor-dashboard .vendor-report-progress__step.is-current {
-  background: #eef4ff;
-  border-color: rgba(var(--brand-navy-rgb), 0.22);
-}
-
-.vendor-dashboard .vendor-report-progress__step.is-done {
-  background: #ecfdf5;
-  border-color: #bbf7d0;
-}
-
-.vendor-dashboard .vendor-report-progress__index {
-  align-items: center;
-  background: #dbe4f3;
-  border-radius: 999px;
-  color: var(--text-dark);
-  display: inline-flex;
-  font-size: 0.82rem;
-  font-weight: 800;
-  height: 38px;
-  justify-content: center;
-  width: 38px;
-}
-
-.vendor-dashboard .vendor-report-progress__step.is-current .vendor-report-progress__index {
-  background: var(--brand-navy);
-  color: #ffffff;
-}
-
-.vendor-dashboard .vendor-report-progress__step.is-done .vendor-report-progress__index {
-  background: #16a34a;
-  color: #ffffff;
-}
-
-.vendor-dashboard .vendor-report-progress__content strong {
-  color: var(--text-dark);
-  display: block;
-  font-size: 0.9rem;
-  line-height: 1.35;
-}
-
 .vendor-dashboard .vendor-report-mismatch {
   display: grid;
   grid-template-columns: 2fr repeat(3, 1fr);
   gap: 12px;
+  margin-bottom: 16px;
 }
 
 .vendor-dashboard .vendor-report-mismatch > div,
 .vendor-dashboard .vendor-report-notes {
   border: 1px solid #e2e8f0;
-  border-radius: 16px;
+  border-radius: 8px;
   padding: 14px;
   background: #f8fafc;
 }

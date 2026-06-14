@@ -353,20 +353,19 @@ const AdminDashboard = () => {
     void fetchSecondaryData({ showLoader: true });
   }, [activeTab, activityLoaded, activityLoading, fetchSecondaryData]);
 
-  const handleLogout = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (token) {
-        await axios.post(`${API_BASE_URL}/api/auth/logout`, {}, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-      }
-    } catch {
-      // Keep logout resilient
-    }
+  const handleLogout = () => {
+    const token = localStorage.getItem('token');
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    navigate('/login', { replace: true });
+    navigate('/login');
+
+    if (token) {
+      axios.post(`${API_BASE_URL}/api/auth/logout`, {}, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {
+        // Keep logout resilient
+      });
+    }
   };
 
   const resetNewUserForm = () => {
@@ -635,7 +634,7 @@ const AdminDashboard = () => {
 
                         {usersList.length === 0 && primaryLoaded ? (
                           <tr>
-                            <td colSpan="6" className="admin-table__empty">Belum ada user yang tersedia.</td>
+                            <td colSpan="6" className="admin-table__empty">Belum ada user dari backend.</td>
                           </tr>
                         ) : null}
                       </tbody>
@@ -701,7 +700,7 @@ const AdminDashboard = () => {
 
                         {vendors.length === 0 && primaryLoaded ? (
                           <tr>
-                            <td colSpan="5" className="admin-table__empty">Belum ada vendor yang tersedia.</td>
+                            <td colSpan="5" className="admin-table__empty">Belum ada vendor dari backend.</td>
                           </tr>
                         ) : null}
                       </tbody>
@@ -737,7 +736,7 @@ const AdminDashboard = () => {
                   ))}
 
                   {activityFeed.length === 0 && activityLoaded ? (
-                    <div className="admin-empty-block">Belum ada aktivitas terbaru untuk ditampilkan.</div>
+                    <div className="admin-empty-block">Belum ada aktivitas terbaru dari backend.</div>
                   ) : null}
                 </div>
               )}
