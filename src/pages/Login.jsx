@@ -97,7 +97,6 @@ const Login = () => {
         keepBusyState = true;
         setTransitionMessage(destination.message);
         setTransitioning(true);
-        await new Promise((resolve) => window.setTimeout(resolve, 220));
         navigate(destination.path);
         return;
       }

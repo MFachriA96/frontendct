@@ -268,8 +268,9 @@
   bottom: 0;
   display: grid;
   gap: 12px;
+  grid-template-rows: auto auto minmax(0, 1fr);
   left: 0;
-  max-height: 72svh;
+  max-height: min(88svh, 720px);
   padding: 10px 14px calc(18px + env(safe-area-inset-bottom, 0px));
   position: absolute;
   right: 0;
@@ -340,8 +341,10 @@
   display: grid;
   gap: 12px;
   min-height: 0;
+  overscroll-behavior: contain;
   overflow-y: auto;
-  padding-bottom: 4px;
+  padding-bottom: calc(42px + env(safe-area-inset-bottom, 0px));
+  scrollbar-gutter: stable;
 }
 
 .receiving-sheet__toggle {
@@ -623,6 +626,80 @@
 .receiving-actions {
   display: grid;
   gap: 8px;
+}
+
+.receiving-photo-panel {
+  background: #f8fbff;
+  border: 1px solid #dbe5f2;
+  border-radius: 16px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.receiving-photo-panel__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.receiving-photo-panel__head span {
+  color: #627086;
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.receiving-photo-panel__head strong {
+  color: #142033;
+  display: block;
+  font-size: 0.9rem;
+  margin-top: 2px;
+}
+
+.receiving-photo-panel__actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.receiving-photo-panel__actions .receiving-btn {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+  justify-content: center;
+  min-height: 40px;
+}
+
+.receiving-photo-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.receiving-photo-thumb {
+  aspect-ratio: 1;
+  background: #e8eef8;
+  border: 1px solid #d9e2ef;
+  border-radius: 12px;
+  display: block;
+  overflow: hidden;
+}
+
+.receiving-photo-thumb img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.receiving-photo-panel__empty {
+  border: 1px dashed #cfd9e8;
+  border-radius: 12px;
+  color: #627086;
+  font-size: 0.82rem;
+  padding: 10px;
+  text-align: center;
 }
 
 .receiving-inline-warning {

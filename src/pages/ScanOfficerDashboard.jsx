@@ -85,12 +85,14 @@ const ScanOfficerDashboard = () => {
   const [cameraStarting, setCameraStarting] = useState(false);
   const [scanResolving, setScanResolving] = useState(false);
   const [verifyLoading, setVerifyLoading] = useState(false);
+  const [photoUploadLoading, setPhotoUploadLoading] = useState(false);
   const [finalizeLoading, setFinalizeLoading] = useState(false);
   const [queueShipments, setQueueShipments] = useState([]);
   const [historyInbounds, setHistoryInbounds] = useState([]);
   const [activeShipment, setActiveShipment] = useState(null);
   const [activeInbound, setActiveInbound] = useState(null);
   const [activeBox, setActiveBox] = useState(null);
+  const [pendingPhotos, setPendingPhotos] = useState([]);
   const [verificationForm, setVerificationForm] = useState({
     actualQty: '',
     conditionStatus: 'normal',
@@ -117,6 +119,8 @@ const ScanOfficerDashboard = () => {
   const fallbackCanvasRef = useRef(null);
   const cameraSuccessTimerRef = useRef(null);
   const sheetTouchStartYRef = useRef(null);
+  const cameraPhotoInputRef = useRef(null);
+  const galleryPhotoInputRef = useRef(null);
 
   const assignedWarehouseLabel = user?.warehouse?.nama_gudang
     || user?.nama_gudang
@@ -214,6 +218,10 @@ const ScanOfficerDashboard = () => {
 
   const resetVerificationState = useCallback(() => {
     setActiveBox(null);
+    setPendingPhotos((prev) => {
+      prev.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
+      return [];
+    });
     setVerificationForm({
       actualQty: '',
       conditionStatus: 'normal',
@@ -221,20 +229,19 @@ const ScanOfficerDashboard = () => {
     });
   }, []);
 
-  const handleLogout = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (token) {
-        await axios.post(`${API_BASE_URL}/api/auth/logout`, {}, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-      }
-    } catch {
-      // Keep client logout resilient.
-    }
+  const handleLogout = () => {
+    const token = localStorage.getItem('token');
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     navigate('/login');
+
+    if (token) {
+      axios.post(`${API_BASE_URL}/api/auth/logout`, {}, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {
+        // Keep client logout resilient.
+      });
+    }
   };
 
   const handleSelectShipment = async (shipment) => {
@@ -277,6 +284,10 @@ const ScanOfficerDashboard = () => {
       const result = response.data?.data || {};
       setActiveInbound(result.inbound || null);
       setActiveBox(result.box || null);
+      setPendingPhotos((prev) => {
+        prev.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
+        return [];
+      });
       setVerificationForm({
         actualQty: result.box?.expected_qty_in_box ?? '',
         conditionStatus: 'normal',
@@ -482,6 +493,7 @@ const ScanOfficerDashboard = () => {
     setVerifyLoading(true);
     try {
       const token = localStorage.getItem('token');
+      const boxCode = activeBox.box_code;
       const payload = buildVerifyBoxPayload({
         inboundId: activeInbound.ID_inbound,
         boxId: activeBox.ID_outbound_box,
@@ -494,9 +506,27 @@ const ScanOfficerDashboard = () => {
       });
 
       const result = response.data?.data || {};
+      if (pendingPhotos.length > 0) {
+        setPhotoUploadLoading(true);
+
+        for (const pendingPhoto of pendingPhotos) {
+          const photoPayload = new FormData();
+          photoPayload.append('ID_inbound', activeInbound.ID_inbound);
+          photoPayload.append('ID_outbound_box', activeBox.ID_outbound_box);
+          photoPayload.append('foto', pendingPhoto.file);
+
+          await axios.post(`${API_BASE_URL}/api/receiving/upload-photo`, photoPayload, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'multipart/form-data',
+            },
+          });
+        }
+      }
+
       setScanFeedback({
         type: 'success',
-        message: `Verifikasi ${activeBox.box_code} tersimpan. Hasil: ${formatStatusLabel(result.verification_status, 'tersimpan')}.`,
+        message: `Verifikasi ${boxCode} tersimpan. Hasil: ${formatStatusLabel(result.verification_status, 'tersimpan')}.`,
       });
       await Promise.all([
         loadShipmentContext(activeShipment?.ID_outbound),
@@ -511,9 +541,31 @@ const ScanOfficerDashboard = () => {
         message: error.response?.data?.message || 'Gagal verifikasi box.',
       });
     } finally {
+      setPhotoUploadLoading(false);
       setVerifyLoading(false);
       setLoading(false);
     }
+  };
+
+  const handlePhotoSelected = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+
+    if (!file || !activeBox?.ID_outbound_box) {
+      return;
+    }
+
+    setScanFeedback(null);
+    const previewUrl = URL.createObjectURL(file);
+    setPendingPhotos((prev) => ([
+      ...prev,
+      {
+        id: `${Date.now()}-${file.name}`,
+        file,
+        previewUrl,
+        is_pending: true,
+      },
+    ]));
   };
 
   const handleFinalizeReceiving = async () => {
@@ -552,6 +604,14 @@ const ScanOfficerDashboard = () => {
   };
 
   const progress = buildReceivingProgress(activeShipment);
+  const activeBoxPhotos = [
+    ...(Array.isArray(activeBox?.photos) ? activeBox.photos : []),
+    ...pendingPhotos.map((photo) => ({
+      ID_foto: photo.id,
+      file_url: photo.previewUrl,
+      is_pending: true,
+    })),
+  ];
 
   const handleSheetTouchStart = (event) => {
     sheetTouchStartYRef.current = event.touches?.[0]?.clientY ?? null;
@@ -913,10 +973,72 @@ const ScanOfficerDashboard = () => {
                   />
                 </div>
 
+                <div className="receiving-photo-panel">
+                  <div className="receiving-photo-panel__head">
+                    <div>
+                      <span>Foto barang</span>
+                      <strong>{activeBoxPhotos.length ? `${activeBoxPhotos.length} foto terlampir` : 'Belum ada foto terlampir'}</strong>
+                    </div>
+                  </div>
+                  <div className="receiving-photo-panel__actions">
+                    <button
+                      type="button"
+                      className="receiving-btn receiving-btn--ghost"
+                      onClick={() => cameraPhotoInputRef.current?.click()}
+                      disabled={loading || photoUploadLoading}
+                    >
+                      <i className="fa-solid fa-camera"></i> Add Photo - Camera
+                    </button>
+                    <button
+                      type="button"
+                      className="receiving-btn receiving-btn--ghost"
+                      onClick={() => galleryPhotoInputRef.current?.click()}
+                      disabled={loading || photoUploadLoading}
+                    >
+                      <i className="fa-solid fa-image"></i> Add Photo - Upload
+                    </button>
+                  </div>
+                  <input
+                    ref={cameraPhotoInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    hidden
+                    onChange={handlePhotoSelected}
+                  />
+                  <input
+                    ref={galleryPhotoInputRef}
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    onChange={handlePhotoSelected}
+                  />
+                  {photoUploadLoading ? (
+                    <div className="receiving-photo-panel__empty">Mengunggah foto...</div>
+                  ) : activeBoxPhotos.length > 0 ? (
+                    <div className="receiving-photo-grid">
+                      {activeBoxPhotos.map((photo) => (
+                        <a
+                          key={photo.ID_foto || photo.file_url}
+                          className="receiving-photo-thumb"
+                          href={photo.file_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label="Buka foto barang"
+                        >
+                          <img src={photo.file_url} alt="Foto barang hasil verifikasi" />
+                        </a>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="receiving-photo-panel__empty">Belum ada foto terlampir.</div>
+                  )}
+                </div>
+
                 <div className="receiving-actions">
                   <AppButton
                     className="receiving-primary-button"
-                    disabled={loading || verificationForm.actualQty === ''}
+                    disabled={loading || photoUploadLoading || verificationForm.actualQty === ''}
                     type="button"
                     onClick={() => void handleVerifyBox()}
                   >

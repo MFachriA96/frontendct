@@ -353,20 +353,19 @@ const AdminDashboard = () => {
     void fetchSecondaryData({ showLoader: true });
   }, [activeTab, activityLoaded, activityLoading, fetchSecondaryData]);
 
-  const handleLogout = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (token) {
-        await axios.post(`${API_BASE_URL}/api/auth/logout`, {}, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-      }
-    } catch {
-      // Keep logout resilient
-    }
+  const handleLogout = () => {
+    const token = localStorage.getItem('token');
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     navigate('/login');
+
+    if (token) {
+      axios.post(`${API_BASE_URL}/api/auth/logout`, {}, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {
+        // Keep logout resilient
+      });
+    }
   };
 
   const resetNewUserForm = () => {

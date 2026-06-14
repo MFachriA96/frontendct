@@ -21,6 +21,27 @@ import './ManagerDashboard.css';
 
 const LazyAnalyticsTrendChart = lazy(() => import('../components/AnalyticsTrendChart'));
 
+const readJsonStorage = (key, fallback) => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+    return parsed ?? fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const managerCacheKey = (scope) => `managerDashboardCache:${scope || 'all'}`;
+
+const writeManagerCache = (scope, patch) => {
+  const key = managerCacheKey(scope);
+  const current = readJsonStorage(key, {});
+  localStorage.setItem(key, JSON.stringify({
+    ...current,
+    ...patch,
+    cached_at: new Date().toISOString(),
+  }));
+};
+
 const ManagerKpiSkeleton = ({ count = 4 }) => (
   <div className="stats-kpi-container">
     {Array.from({ length: count }).map((_, index) => (
@@ -53,25 +74,24 @@ const ManagerTableSkeleton = ({ columns = 6, rows = 5 }) => (
 const ManagerDashboard = () => {
   const [activeSidebar, setActiveSidebar] = useState('dashboard');
   const [shipmentStatusFilter, setShipmentStatusFilter] = useState('total');
-  const [user] = useState(() => {
-    const userData = localStorage.getItem('user');
-    return userData ? JSON.parse(userData) : null;
-  });
+  const [user] = useState(() => readJsonStorage('user', null));
+  const initialWarehouseScope = user?.ID_gudang ? 'default' : 'all';
+  const initialManagerCache = readJsonStorage(managerCacheKey(initialWarehouseScope), {});
   const [loading, setLoading] = useState(false);
 
   // Data State
-  const [shipments, setShipments] = useState([]);
-  const [discrepancies, setDiscrepancies] = useState([]);
-  const [managerOverview, setManagerOverview] = useState(null);
-  const [analyticsData, setAnalyticsData] = useState([]);
-  const [reportsData, setReportsData] = useState([]);
+  const [shipments, setShipments] = useState(() => initialManagerCache.shipments || []);
+  const [discrepancies, setDiscrepancies] = useState(() => initialManagerCache.discrepancies || []);
+  const [managerOverview, setManagerOverview] = useState(() => initialManagerCache.managerOverview || null);
+  const [analyticsData, setAnalyticsData] = useState(() => initialManagerCache.analyticsData || []);
+  const [reportsData, setReportsData] = useState(() => initialManagerCache.reportsData || []);
   const [dashboardLoading, setDashboardLoading] = useState(true);
-  const [managerAnalytics, setManagerAnalytics] = useState(null);
+  const [managerAnalytics, setManagerAnalytics] = useState(() => initialManagerCache.managerAnalytics || null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState(null);
   const [secondaryLoading, setSecondaryLoading] = useState(false);
-  const [warehouses, setWarehouses] = useState([]);
-  const [warehouseScope, setWarehouseScope] = useState(() => (user?.ID_gudang ? 'default' : 'all'));
+  const [warehouses, setWarehouses] = useState(() => readJsonStorage('warehouseOptions', []));
+  const [warehouseScope, setWarehouseScope] = useState(initialWarehouseScope);
 
   // Modal State
   const [resolveModalData, setResolveModalData] = useState(null);
@@ -117,19 +137,24 @@ const ManagerDashboard = () => {
     const token = localStorage.getItem('token');
     const headers = { Authorization: `Bearer ${token}` };
     const params = buildWarehouseScopedParams(warehouseScope);
+    const discrepancyParams = { ...params, include_photos: true };
 
     setDashboardLoading(true);
 
     const [overviewResult, outboundResult, discrepancyResult] = await Promise.allSettled([
       axios.get(`${API_BASE_URL}/api/dashboard/manager-overview`, { headers, params }),
       axios.get(`${API_BASE_URL}/api/outbound`, { headers, params }),
-      axios.get(`${API_BASE_URL}/api/discrepancy`, { headers, params })
+      axios.get(`${API_BASE_URL}/api/discrepancy`, { headers, params: discrepancyParams })
     ]);
 
     if (overviewResult.status === 'fulfilled') {
       const overview = normalizeOverviewResponse(overviewResult.value.data);
       setManagerOverview(overview);
       setAnalyticsData(overview?.vendor_performance || []);
+      writeManagerCache(warehouseScope, {
+        managerOverview: overview,
+        analyticsData: overview?.vendor_performance || [],
+      });
     } else {
       console.error('Error fetching manager overview:', overviewResult.reason);
       setManagerOverview(null);
@@ -137,13 +162,17 @@ const ManagerDashboard = () => {
     }
 
     if (outboundResult.status === 'fulfilled') {
-      setShipments(normalizeListResponse(outboundResult.value.data));
+      const nextShipments = normalizeListResponse(outboundResult.value.data);
+      setShipments(nextShipments);
+      writeManagerCache(warehouseScope, { shipments: nextShipments });
     } else {
       console.error('Error fetching outbound shipments:', outboundResult.reason);
     }
 
     if (discrepancyResult.status === 'fulfilled') {
-      setDiscrepancies(normalizeListResponse(discrepancyResult.value.data));
+      const nextDiscrepancies = normalizeListResponse(discrepancyResult.value.data);
+      setDiscrepancies(nextDiscrepancies);
+      writeManagerCache(warehouseScope, { discrepancies: nextDiscrepancies });
     } else {
       console.error('Error fetching discrepancies:', discrepancyResult.reason);
     }
@@ -160,7 +189,9 @@ const ManagerDashboard = () => {
     ]);
 
     if (reportsResult.status === 'fulfilled') {
-      setReportsData(normalizeListResponse(reportsResult.value.data));
+      const nextReports = normalizeListResponse(reportsResult.value.data);
+      setReportsData(nextReports);
+      writeManagerCache(warehouseScope, { reportsData: nextReports });
     } else {
       console.error('Error fetching vendor reports:', reportsResult.reason);
     }
@@ -188,7 +219,9 @@ const ManagerDashboard = () => {
       const res = await axios.get(`${API_BASE_URL}/api/dashboard/manager-analytics${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setManagerAnalytics(normalizeAnalyticsResponse(res.data));
+      const nextAnalytics = normalizeAnalyticsResponse(res.data);
+      setManagerAnalytics(nextAnalytics);
+      writeManagerCache(warehouseScope, { managerAnalytics: nextAnalytics });
     } catch (err) {
       setAnalyticsError(err.response?.data?.message || err.message || 'Gagal memuat analitik.');
     } finally {
@@ -203,7 +236,9 @@ const ManagerDashboard = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       const payload = response.data?.data;
-      setWarehouses(Array.isArray(payload) ? payload : (payload?.data || []));
+      const nextWarehouses = Array.isArray(payload) ? payload : (payload?.data || []);
+      setWarehouses(nextWarehouses);
+      localStorage.setItem('warehouseOptions', JSON.stringify(nextWarehouses));
     } catch (error) {
       console.error('Error fetching warehouses:', error);
       setWarehouses([]);
@@ -211,6 +246,17 @@ const ManagerDashboard = () => {
   }, []);
 
   useEffect(() => {
+    const cached = readJsonStorage(managerCacheKey(warehouseScope), {});
+
+    if (cached.managerOverview || cached.shipments || cached.discrepancies || cached.managerAnalytics) {
+      setManagerOverview(cached.managerOverview || null);
+      setAnalyticsData(cached.analyticsData || []);
+      setShipments(cached.shipments || []);
+      setDiscrepancies(cached.discrepancies || []);
+      setReportsData(cached.reportsData || []);
+      setManagerAnalytics(cached.managerAnalytics || null);
+    }
+
     Promise.resolve().then(() => {
       void fetchData();
       void fetchManagerAnalytics();
@@ -223,20 +269,19 @@ const ManagerDashboard = () => {
     });
   }, [fetchWarehouses]);
 
-  const handleLogout = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (token) {
-        await axios.post(`${API_BASE_URL}/api/auth/logout`, {}, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-      }
-    } catch (error) {
-      console.error(error);
-    }
+  const handleLogout = () => {
+    const token = localStorage.getItem('token');
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     navigate('/login');
+
+    if (token) {
+      axios.post(`${API_BASE_URL}/api/auth/logout`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      }).catch((error) => {
+        console.error(error);
+      });
+    }
   };
 
   const handleResolve = async () => {
@@ -363,7 +408,6 @@ const ManagerDashboard = () => {
   const analyticsModel = managerAnalytics || normalizeAnalyticsResponse(null);
   const analyticsTrendData = buildTrendChartData(analyticsModel.trend_by_date);
   const analyticsPreviewAvailable = Boolean(managerAnalytics) && !analyticsError;
-  const analyticsPending = analyticsLoading && !managerAnalytics;
   const managerPrimaryCards = buildManagerDashboardPrimaryCards(shipmentCounts, pendingCount);
   const managerHeroMetrics = buildManagerDashboardHeroMetrics({
     shipmentCounts,
@@ -385,6 +429,11 @@ const ManagerDashboard = () => {
     Delivered: 'Selesai diverifikasi',
     'Pending Review': 'Shipment bermasalah',
   };
+  const getDiscrepancyPhotos = (discrepancy) => (
+    Array.isArray(discrepancy?.inbound_detail?.audit_photos)
+      ? discrepancy.inbound_detail.audit_photos
+      : []
+  );
 
   const getStatusBadge = (status) => {
     switch (status) {
@@ -679,7 +728,7 @@ const ManagerDashboard = () => {
                     </button>
                   </div>
 
-                  {showManagerDashboardSkeleton || analyticsPending ? (
+                  {showManagerDashboardSkeleton ? (
                     <>
                       <div className="manager-visual-chip-row">
                         {Array.from({ length: 3 }).map((_, index) => (
@@ -992,6 +1041,23 @@ const ManagerDashboard = () => {
                       <div><span>Diterima</span><strong>{disc.quantity_inbound ?? '-'}</strong></div>
                       <div><span>Selisih</span><strong>{disc.selisih ?? '-'}</strong></div>
                     </div>
+                    <div className="manager-evidence-strip">
+                      <span>Foto barang</span>
+                      {getDiscrepancyPhotos(disc).length > 0 ? (
+                        <div className="manager-evidence-thumbs">
+                          {getDiscrepancyPhotos(disc).slice(0, 3).map((photo) => (
+                            <a key={photo.ID_foto || photo.file_url} href={photo.file_url} target="_blank" rel="noreferrer">
+                              <img src={photo.file_url} alt="Foto barang verifikasi" />
+                            </a>
+                          ))}
+                          {getDiscrepancyPhotos(disc).length > 3 && (
+                            <em>+{getDiscrepancyPhotos(disc).length - 3}</em>
+                          )}
+                        </div>
+                      ) : (
+                        <strong>No photo attached</strong>
+                      )}
+                    </div>
                     <div className="verification-footer">
                       <span>{formatDateTime(disc.created_at)}</span>
                       {disc.status !== 'match' && (
@@ -1056,6 +1122,23 @@ const ManagerDashboard = () => {
                           <span className="num-label">Selisih</span>
                           <span className="num-val">{disc.selisih}</span>
                         </div>
+                      </div>
+                      <div className="manager-evidence-strip manager-evidence-strip--review">
+                        <span>Foto barang</span>
+                        {getDiscrepancyPhotos(disc).length > 0 ? (
+                          <div className="manager-evidence-thumbs">
+                            {getDiscrepancyPhotos(disc).slice(0, 4).map((photo) => (
+                              <a key={photo.ID_foto || photo.file_url} href={photo.file_url} target="_blank" rel="noreferrer">
+                                <img src={photo.file_url} alt="Foto barang verifikasi" />
+                              </a>
+                            ))}
+                            {getDiscrepancyPhotos(disc).length > 4 && (
+                              <em>+{getDiscrepancyPhotos(disc).length - 4}</em>
+                            )}
+                          </div>
+                        ) : (
+                          <strong>No photo attached</strong>
+                        )}
                       </div>
                       <button className="btn btn-primary btn-block mt-3" onClick={() => setResolveModalData(disc)}>
                         <i className="fa-solid fa-file-contract"></i> Selesaikan Selisih
@@ -1180,6 +1263,24 @@ const ManagerDashboard = () => {
                 <div>
                   <strong>Item {resolveModalData.outbound_detail?.barang?.nama_barang}</strong> punya selisih {resolveModalData.selisih} item. Pilih tindakan manager untuk menyelesaikannya.
                 </div>
+              </div>
+
+              <div className="manager-modal-evidence">
+                <div className="manager-modal-evidence__head">
+                  <span>Foto barang</span>
+                  <strong>{getDiscrepancyPhotos(resolveModalData).length ? `${getDiscrepancyPhotos(resolveModalData).length} foto terlampir` : 'No photo attached'}</strong>
+                </div>
+                {getDiscrepancyPhotos(resolveModalData).length > 0 ? (
+                  <div className="manager-modal-evidence__grid">
+                    {getDiscrepancyPhotos(resolveModalData).map((photo) => (
+                      <a key={photo.ID_foto || photo.file_url} href={photo.file_url} target="_blank" rel="noreferrer">
+                        <img src={photo.file_url} alt="Foto barang verifikasi" />
+                      </a>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="manager-modal-evidence__empty">No photo attached for this verification.</div>
+                )}
               </div>
 
               <div className="form-group mt-3">
