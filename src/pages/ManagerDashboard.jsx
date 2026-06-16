@@ -352,12 +352,12 @@ const ManagerDashboard = () => {
 
       setResolveModalData(null);
       setResolutionNotes('');
-      await fetchData();
       if (generatedReport) {
         setReportModalData(generatedReport);
       } else {
           openStatusModal('success', 'Keputusan tersimpan', 'Discrepancy ditutup tanpa mengirim dokumen R1 ke vendor.');
       }
+      void fetchData({ includeSecondary: true, showLoading: false });
     } catch (error) {
       console.error(error);
       const msg = error.response?.data?.message || error.message;
