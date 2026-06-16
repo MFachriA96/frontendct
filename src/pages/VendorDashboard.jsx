@@ -45,8 +45,29 @@ const readJsonStorage = (key, fallback) => {
 
 const getVendorCacheKey = (vendorId) => `vendorDashboardCache:${vendorId || 'unknown'}`;
 
+const getUserVendorId = (vendorUser) => (
+  vendorUser?.ID_vendor
+  ?? vendorUser?.vendor_id
+  ?? vendorUser?.vendor?.ID_vendor
+  ?? vendorUser?.vendor?.id
+  ?? null
+);
+
+const normalizeVendorUser = (vendorUser) => {
+  if (!vendorUser) {
+    return null;
+  }
+
+  const vendorId = getUserVendorId(vendorUser);
+
+  return {
+    ...vendorUser,
+    ID_vendor: vendorId,
+  };
+};
+
 const readVendorDashboardCache = (vendorUser) => {
-  const vendorId = vendorUser?.ID_vendor;
+  const vendorId = getUserVendorId(vendorUser);
 
   if (!vendorId) {
     return {};
@@ -193,7 +214,7 @@ const APPROVED_PRODUCT_NAMES = [
 ];
 
 const VendorDashboard = () => {
-  const initialUser = readJsonStorage('user', null);
+  const initialUser = normalizeVendorUser(readJsonStorage('user', null));
   const initialDashboardCache = readVendorDashboardCache(initialUser);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [shipmentStatusFilter, setShipmentStatusFilter] = useState('total');
@@ -374,18 +395,25 @@ const VendorDashboard = () => {
       }
 
       const response = await axios.get(`${API_BASE_URL}/api/auth/me`, { headers });
-      const backendUser = response.data?.data || null;
+      const cachedUser = normalizeVendorUser(readJsonStorage('user', null));
+      const rawBackendUser = response.data?.data || null;
+      const backendUser = normalizeVendorUser({
+        ...(cachedUser || {}),
+        ...(rawBackendUser || {}),
+        vendor: rawBackendUser?.vendor || cachedUser?.vendor || null,
+      });
 
-      if (!backendUser || String(backendUser.role).toLowerCase() !== 'vendor' || !backendUser.ID_vendor) {
+      if (!backendUser || String(backendUser.role).toLowerCase() !== 'vendor' || !getUserVendorId(backendUser)) {
         if (!silent) {
           forceLogoutToLogin('Akun ini tidak terhubung ke vendor yang valid. Silakan login memakai akun vendor sebelum membuat shipment.');
         }
         return null;
       }
 
-      setUser(backendUser);
-      localStorage.setItem('user', JSON.stringify(backendUser));
-      return { token, headers, user: backendUser };
+      const normalizedUser = normalizeVendorUser(backendUser);
+      setUser(normalizedUser);
+      localStorage.setItem('user', JSON.stringify(normalizedUser));
+      return { token, headers, user: normalizedUser };
     } catch (error) {
       console.error('Failed to verify vendor session:', error);
       if (!silent) {
@@ -677,10 +705,10 @@ const VendorDashboard = () => {
       initializedRef.current = true;
       setAuthChecking(true);
       const { token, headers } = getAuthHeaders();
-      const storedUser = readJsonStorage('user', null);
+      const storedUser = normalizeVendorUser(readJsonStorage('user', null));
       const storedUserIsVendor = storedUser
         && String(storedUser.role).toLowerCase() === 'vendor'
-        && storedUser.ID_vendor;
+        && getUserVendorId(storedUser);
       const session = token && storedUserIsVendor
         ? { token, headers, user: storedUser }
         : await ensureVendorSession();

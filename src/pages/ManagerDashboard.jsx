@@ -133,13 +133,15 @@ const ManagerDashboard = () => {
 
   const normalizeOverviewResponse = (data) => data?.data || null;
 
-  const fetchData = useCallback(async ({ includeSecondary = true } = {}) => {
+  const fetchData = useCallback(async ({ includeSecondary = true, showLoading = true } = {}) => {
     const token = localStorage.getItem('token');
     const headers = { Authorization: `Bearer ${token}` };
     const params = buildWarehouseScopedParams(warehouseScope);
     const discrepancyParams = { ...params, include_photos: true };
 
-    setDashboardLoading(true);
+    if (showLoading) {
+      setDashboardLoading(true);
+    }
 
     const [overviewResult, outboundResult, discrepancyResult] = await Promise.allSettled([
       axios.get(`${API_BASE_URL}/api/dashboard/manager-overview`, { headers, params }),
@@ -177,7 +179,9 @@ const ManagerDashboard = () => {
       console.error('Error fetching discrepancies:', discrepancyResult.reason);
     }
 
-    setDashboardLoading(false);
+    if (showLoading) {
+      setDashboardLoading(false);
+    }
 
     if (!includeSecondary) {
       return;
@@ -268,6 +272,26 @@ const ManagerDashboard = () => {
       void fetchWarehouses();
     });
   }, [fetchWarehouses]);
+
+  useEffect(() => {
+    const liveSections = new Set(['dashboard', 'verification-results', 'discrepancy-review']);
+
+    if (!liveSections.has(activeSidebar)) {
+      return undefined;
+    }
+
+    if (activeSidebar !== 'dashboard') {
+      void fetchData({ includeSecondary: false, showLoading: false });
+    }
+
+    const refreshTimer = window.setInterval(() => {
+      void fetchData({ includeSecondary: false, showLoading: false });
+    }, 15000);
+
+    return () => {
+      window.clearInterval(refreshTimer);
+    };
+  }, [activeSidebar, fetchData]);
 
   const handleLogout = () => {
     const token = localStorage.getItem('token');
@@ -398,13 +422,18 @@ const ManagerDashboard = () => {
 
   const hasCompletedAction = (discrepancy) => discrepancy.latest_action?.status_action === 'done';
   const pendingDiscrepancies = discrepancies.filter(d => d.status !== 'match' && !hasCompletedAction(d));
-  const shipmentCounts = managerOverview?.shipment_counts || getShipmentStatusCounts(shipments);
-  const pendingCount = Number(managerOverview?.discrepancy_breakdown?.pending_review ?? pendingDiscrepancies.length);
-  const filteredShipments = filterShipmentsByStatusGroup(shipments, shipmentStatusFilter);
-  const discrepancyStatusCounts = managerOverview?.discrepancy_breakdown?.by_status || getDiscrepancyStatusCounts(discrepancies);
   const pendingReviewQueue = Array.isArray(managerOverview?.pending_review_queue)
     ? managerOverview.pending_review_queue
     : pendingDiscrepancies.slice(0, 5);
+  const reviewDiscrepancies = [...pendingReviewQueue, ...pendingDiscrepancies]
+    .filter((disc) => disc && disc.status !== 'match' && !hasCompletedAction(disc))
+    .filter((disc, index, list) => (
+      list.findIndex((candidate) => candidate.ID_discrepancy === disc.ID_discrepancy) === index
+    ));
+  const shipmentCounts = managerOverview?.shipment_counts || getShipmentStatusCounts(shipments);
+  const pendingCount = Number(managerOverview?.discrepancy_breakdown?.pending_review ?? reviewDiscrepancies.length);
+  const filteredShipments = filterShipmentsByStatusGroup(shipments, shipmentStatusFilter);
+  const discrepancyStatusCounts = managerOverview?.discrepancy_breakdown?.by_status || getDiscrepancyStatusCounts(discrepancies);
   const analyticsModel = managerAnalytics || normalizeAnalyticsResponse(null);
   const analyticsTrendData = buildTrendChartData(analyticsModel.trend_by_date);
   const analyticsPreviewAvailable = Boolean(managerAnalytics) && !analyticsError;
@@ -1091,7 +1120,7 @@ const ManagerDashboard = () => {
               </div>
 
               <div className="review-grid standalone-review-grid">
-                {pendingDiscrepancies.map(disc => (
+                {reviewDiscrepancies.map(disc => (
                   <div className="review-card" key={disc.ID_discrepancy}>
                     <div className="review-card-header bg-danger-light border-danger">
                       <div className="review-title">
@@ -1146,7 +1175,7 @@ const ManagerDashboard = () => {
                     </div>
                   </div>
                 ))}
-                {pendingDiscrepancies.length === 0 && (
+                {reviewDiscrepancies.length === 0 && (
                   <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
                     <i className="fa-solid fa-circle-check text-success"></i>
                     <h3>Tidak Ada Selisih Terbuka</h3>
