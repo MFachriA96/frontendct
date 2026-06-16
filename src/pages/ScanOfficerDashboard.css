@@ -268,9 +268,10 @@
   bottom: 0;
   display: grid;
   gap: 12px;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   left: 0;
   max-height: min(88svh, 720px);
+  overflow: hidden;
   padding: 10px 14px calc(18px + env(safe-area-inset-bottom, 0px));
   position: absolute;
   right: 0;
@@ -335,6 +336,17 @@
   color: #65738a;
   font-size: 0.76rem;
   font-weight: 700;
+}
+
+.receiving-sheet > .progress-block {
+  background: #ffffff;
+  min-height: 30px;
+  position: relative;
+  z-index: 2;
+}
+
+.receiving-sheet > .progress-block .progress-bar {
+  flex: 0 0 auto;
 }
 
 .receiving-sheet__content {
